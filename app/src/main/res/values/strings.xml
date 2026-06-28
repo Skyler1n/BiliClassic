@@ -1,0 +1,113 @@
+<resources>
+    <string name="app_name">BiliClassic</string>
+    <string name="VideoView_buffering">正在缓冲...</string>
+    <string name="VideoView_buffering_long_time">缓冲不动了喵,休息~休息一下</string>
+    <string name="VideoView_timed_text_split_char">/</string>
+    <string name="VideoView_page_list_selector">选集</string>
+    <string name="PreloadingView_press_back_to_exit">再次按后退可以结束播放</string>
+    <string name="PlayerController_tips_toggle_aspect_ratio">视频比例</string>
+    <string name="PlayerController_tips_toggle_danmaku">弹幕开关</string>
+    <string name="PlayerController_tips_send_danmaku">发射弹幕</string>
+    <string name="PlayerController_tips_lock_player">锁屏</string>
+    <string name="PlayerController_toast_message_aspect_ratio_adjust_content">适应视频</string>
+    <string name="PlayerController_toast_message_aspect_ratio_adjust_screen">适应屏幕</string>
+    <string name="PlayerController_toast_message_aspect_ratio_4_3_inside">4 : 3</string>
+    <string name="PlayerController_toast_message_aspect_ratio_16_9_inside">16 : 9</string>
+    <string name="PlayerController_toast_message_danmaku_state_hidden">关闭弹幕</string>
+    <string name="PlayerController_toast_message_danmaku_state_visible">显示弹幕</string>
+    <string name="Player_option_menu_title_player">播放设置</string>
+    <string name="Player_option_menu_title_info">视频信息</string>
+    <string name="Player_option_menu_title_danmaku">弹幕设置</string>
+    <string name="ACD_VideoRoot">视频播放器</string>
+    <string name="ACD_VideoView">视频画面</string>
+    <string name="ACD_ControllerRoot">播放控制</string>
+    <string name="ACD_DanmakuView">弹幕区</string>
+    <string name="ACD_BufferingView">缓冲中</string>
+    <string name="ACD_Underlay">触控区</string>
+    <string name="ACD_ControllerView">控制栏</string>
+    <string name="ACD_DanmakuInputView">弹幕输入</string>
+    <string name="ACD_PreloadingView">加载中</string>
+    <string name="ACD_LockView">锁定</string>
+    <string name="Player_settings_decoder">解码方式</string>
+    <string name="Player_settings_system_player">系统硬解</string>
+    <string name="Player_settings_ijk_player">IJK V3软解</string>
+    <string name="PlayerReactTips_retry_loading">重试</string>
+    <string name="PlayerBreakPoint_continue_play">继续播放</string>
+    <string name="VideoView_danmaku_input_hint">在这里输入弹幕</string>
+    <string name="send">发送</string>
+    <string name="Player_option_menu_title_block">用户屏蔽</string>
+    <string name="Player_option_menu_change_screen_orientation">旋转屏幕</string>
+    <string name="Player_options_title_action_loop">洗脑循环</string>
+    <string name="Player_options_title_action_quit">播完退出</string>
+    <string name="Player_options_title_action_pause">播完暂停</string>
+    <string name="Player_options_title_action_next">自动换P</string>
+    <string name="Player_options_title_action_next_loop">自动换P(循环)</string>
+    <string name="Player_options_title_enable_gesture">启用播放手势</string>
+    <string name="Player_options_title_keep_background">后台恢复播放</string>
+    <string name="Player_playback_options_pannel_title">播放控制</string>
+    <string name="Player_danmaku_options_pannel_title">弹幕控制</string>
+    <string name="Player_danmaku_options_pannel_title_danmaku_block">弹幕屏蔽</string>
+    <string name="Player_danmaku_options_pannel_title_danmaku_duplicate_merging_enable">合并同屏重复弹幕</string>
+    <string name="Player_danmaku_options_pannel_title_danmaku_max_on_screen">同屏密度</string>
+    <string name="Player_danmaku_options_pannel_title_danmaku_speed_factor">速度调节</string>
+    <string name="Player_danmaku_options_pannel_title_danmaku_transparency">弹幕透明度</string>
+    <string name="Player_danmaku_options_pannel_title_danmaku_textsize">字号缩放</string>
+    <string name="Player_danmaku_options_pannel_title_danmaku_stroke_width_scaling">描边/阴影大小</string>
+    <string name="Player_danmaku_options_pannel_options_title_block_top">顶部</string>
+    <string name="Player_danmaku_options_pannel_options_title_block_rl">滚动</string>
+    <string name="Player_danmaku_options_pannel_options_title_block_bottom">底部</string>
+    <string name="Player_danmaku_options_pannel_options_title_block_tourist">游客</string>
+    <string name="Player_danmaku_options_pannel_options_title_block_colorful">彩色</string>
+    <string name="PlayerController_toast_message_play">播放</string>
+    <string name="PlayerController_toast_message_pause">暂停</string>
+    <string name="PlayerController_toast_message_brightness_state_fmt">亮度 : %02d%%</string>
+    <string name="PlayerController_toast_message_volume_state_fmt">音量 : %02d%%</string>
+    <string name="PlayerController_toast_message_play_progress_fmt">%1$s/%2$s\n%3$s秒</string>
+
+    <!-- 解码设置 -->
+    <string name="decoder_pref_title">解码设置</string>
+    <string name="decoder_pref_category_sw_decode">软件解码</string>
+    <string name="decoder_pref_category_playctl">播放控制</string>
+    <string name="decoder_pref_category_audio">音频输出</string>
+
+    <!-- 跳过循环滤波 -->
+    <string name="decoder_key_skip_loop_filter">codec_skip_loop_filter</string>
+    <string name="decoder_title_skip_loop_filter">跳过循环滤波(loop-filter)</string>
+    <string name="decoder_summary_skip_loop_filter">降低解码运算量</string>
+
+    <!-- 跳过非参考帧 -->
+    <string name="decoder_key_skip_frame">codec_skip_frame</string>
+    <string name="decoder_title_skip_frame">跳过非参考帧(skip-frame)</string>
+    <string name="decoder_summary_skip_frame">控制解码器跳帧策略</string>
+
+    <!-- OpenSL ES -->
+    <string name="decoder_key_opensles">aout_opensles</string>
+    <string name="decoder_title_opensles">OpenSL ES</string>
+    <string name="decoder_summary_opensles">启用低延迟音频渲染通路</string>
+
+    <!-- 丢帧策略 -->
+    <string name="decoder_key_framedrop">player_framedrop</string>
+    <string name="decoder_title_framedrop">丢帧策略(framedrop)</string>
+    <string name="decoder_summary_framedrop">CPU太慢时自动丢帧</string>
+
+    <!-- max-fps -->
+    <string name="decoder_key_maxfps">player_max_fps</string>
+    <string name="decoder_title_maxfps">最大帧率(max-fps)</string>
+    <string name="decoder_summary_maxfps">限制播放视频时的最高帧率</string>
+
+    <!-- video-pictq-size -->
+    <string name="decoder_key_pictq_size">player_pictq_size</string>
+    <string name="decoder_title_pictq_size">画面队列大小(pictq-size)</string>
+    <string name="decoder_summary_pictq_size">解码画面缓冲队列长度</string>
+
+    <!-- 禁用视频 -->
+    <string name="decoder_key_vn">player_vn</string>
+    <string name="decoder_title_vn">禁用视频(vn)</string>
+    <string name="decoder_summary_vn">只播放音频, 不渲染视频画面</string>
+
+    <!-- 禁用音频 -->
+    <string name="decoder_key_an">player_an</string>
+    <string name="decoder_title_an">禁用音频(an)</string>
+    <string name="decoder_summary_an">只播放视频, 不输出音频</string>
+
+</resources>

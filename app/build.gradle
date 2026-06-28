@@ -1,0 +1,54 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 17
+    buildToolsVersion '25.0.0'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_5
+        targetCompatibility JavaVersion.VERSION_1_5
+    }
+
+    defaultConfig {
+        applicationId "tv.biliclassic"
+        minSdkVersion 4
+        targetSdkVersion 17
+        versionCode 18
+        versionName "0.4.0-alpha"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    dexOptions {
+        preDexLibraries false
+    }
+}
+
+repositories {
+    flatDir {
+        dirs 'libs'
+    }
+}
+
+dependencies {
+    compile fileTree(dir: 'libs', include: ['*.jar'])
+    compile project(':player')
+    compile project(':DanmakuFlameMaster')
+}
+
+tasks.withType(JavaCompile) {
+    options.incremental = false
+}
+
+task cleanBuildCache(type: Delete) {
+    delete fileTree(dir: project.buildDir, include: '**/*.dex')
+    delete fileTree(dir: project.buildDir, include: '**/*.class')
+    delete fileTree(dir: project.buildDir, include: '**/cache/**')
+}
+
+clean.dependsOn cleanBuildCache

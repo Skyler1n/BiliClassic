@@ -1,0 +1,2 @@
+include ':app', ':player'
+include ':app', ':DanmakuFlameMaster'
