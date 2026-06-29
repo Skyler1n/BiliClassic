@@ -38,6 +38,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.Locale;
@@ -142,6 +143,7 @@ public class BiliPlayerActivity extends Activity implements
     private long mCid;
     private boolean mAllowDecoderFallback = true;
     private int mLastReportProgress = -1;
+    private FileInputStream mFileInputStream;  // 用于 FileDescriptor 方式，保持 FD 存活
 
     private final DanmakuManager.PlayControl mPlayControl = new DanmakuManager.PlayControl() {
         public boolean isPlaying() { return isPlaying; }
@@ -1050,12 +1052,33 @@ public class BiliPlayerActivity extends Activity implements
                     android.util.Log.e("BiliPlayer", "系统播放器网络播放: " + actualUrl);
                     androidPlayer.setDataSource(this, Uri.parse(actualUrl));
                 } else {
+                    String localPath = null;
                     if (cachePath != null && new File(cachePath).exists()) {
-                        android.util.Log.e("BiliPlayer", "系统播放器使用缓存文件: " + cachePath);
-                        androidPlayer.setDataSource(cachePath);
+                        localPath = cachePath;
                     } else if (videoUrl != null && new File(videoUrl).exists()) {
-                        android.util.Log.e("BiliPlayer", "系统播放器使用本地文件: " + videoUrl);
-                        androidPlayer.setDataSource(videoUrl);
+                        localPath = videoUrl;
+                    }
+
+                    if (localPath != null) {
+                        // ========== 优先用 FileDescriptor ==========
+                        try {
+                            mFileInputStream = new FileInputStream(localPath);
+                            androidPlayer.setDataSource(mFileInputStream.getFD());
+                            android.util.Log.e("BiliPlayer", "系统播放器使用 FileDescriptor");
+                        } catch (Exception e) {
+                            android.util.Log.e("BiliPlayer", "FileDescriptor 失败: " + e.getMessage());
+                            // 回退到 Uri
+                            try {
+                                Uri localUri = Uri.fromFile(new File(localPath));
+                                androidPlayer.setDataSource(this, localUri);
+                                android.util.Log.e("BiliPlayer", "回退到 Uri: " + localUri.toString());
+                            } catch (Exception e2) {
+                                android.util.Log.e("BiliPlayer", "Uri 也失败: " + e2.getMessage());
+                                // 最后回退到路径
+                                androidPlayer.setDataSource(localPath);
+                                android.util.Log.e("BiliPlayer", "回退到路径方式: " + localPath);
+                            }
+                        }
                     } else {
                         android.util.Log.e("BiliPlayer", "系统播放器无效的本地源");
                         Toast.makeText(this, "无视频源", Toast.LENGTH_SHORT).show();
@@ -2135,6 +2158,16 @@ public class BiliPlayerActivity extends Activity implements
     }
 
     private void releasePlayer(boolean clearState) {
+        // 关闭 FileInputStream（保持 FD 存活用的）
+        if (mFileInputStream != null) {
+            try {
+                mFileInputStream.close();
+            } catch (Exception e) {
+                // 忽略
+            }
+            mFileInputStream = null;
+        }
+
         if (localProxy != null) {
             localProxy.stop();
             localProxy = null;
