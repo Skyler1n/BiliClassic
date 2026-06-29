@@ -56,6 +56,8 @@ import util.BrightnessHelper;
 import util.LocalStreamProxy;
 import util.PlayerToastMessageViewHolder;
 import tv.biliclassic.util.SharedPreferencesUtil;
+import tv.biliclassic.api.PlayerApi;
+import tv.biliclassic.model.PlayerData;
 
 /************
  * 巨大屎山 *
@@ -209,6 +211,13 @@ public class BiliPlayerActivity extends Activity implements
     private PlayerToastMessageViewHolder mToastViewHolder;
     private String mProgreesFmt;
 
+    private PlayerQualityManager mQualityManager;
+    private String[] mQualityNames;
+    private int[] mQualityValues;
+    private int mCurrentQn;
+    private boolean mOfflineMode;
+    private int mQualitySwitchSeekPos = 0;
+
     private Runnable mHideBarsRunnable = new Runnable() {
         public void run() {
             if (mBrightnessBar != null) mBrightnessBar.setVisibility(View.GONE);
@@ -258,6 +267,13 @@ public class BiliPlayerActivity extends Activity implements
         mAid = getIntent().getLongExtra("aid", 0);
         mCid = getIntent().getLongExtra("cid", 0);
         android.util.Log.e("BiliPlayer", "aid: " + mAid + ", cid: " + mCid);
+
+        mQualityNames = getIntent().getStringArrayExtra("qn_str_array");
+        mQualityValues = getIntent().getIntArrayExtra("qn_value_array");
+        mCurrentQn = getIntent().getIntExtra("current_qn", 0);
+        mOfflineMode = getIntent().getBooleanExtra("offline_mode", false);
+        android.util.Log.e("BiliPlayer", "qualityNames: " + (mQualityNames != null ? mQualityNames.length : 0)
+                + ", currentQn: " + mCurrentQn + ", offlineMode: " + mOfflineMode);
 
         if (onlineMode) {
             if (videoUrl == null || videoUrl.length() == 0) {
@@ -502,11 +518,135 @@ public class BiliPlayerActivity extends Activity implements
         }
 
         showControlsWithAutoHide();
+        initQualityManager();
     }
 
     private void initToastView() {
         mToastViewHolder = new PlayerToastMessageViewHolder();
         mProgreesFmt = getString(R.string.PlayerController_toast_message_play_progress_fmt);
+    }
+
+    private void initQualityManager() {
+        mQualityManager = new PlayerQualityManager(this);
+        boolean allowSwitch = !mOfflineMode && !isLiveStream && mAid > 0 && mCid > 0
+                && mQualityNames != null && mQualityNames.length > 1;
+        mQualityManager.init(mQualityNames, mQualityValues, mCurrentQn, allowSwitch);
+        mQualityManager.setOnQualityChangeListener(new PlayerQualityManager.OnQualityChangeListener() {
+            public void onQualityChange(int newQn) {
+                switchQuality(newQn);
+            }
+        });
+    }
+
+    private void switchQuality(final int newQn) {
+        if (mediaPlayer != null && isPrepared) {
+            try {
+                mQualitySwitchSeekPos = (int) mediaPlayer.getCurrentPosition();
+            } catch (Exception e) {
+                mQualitySwitchSeekPos = 0;
+            }
+        }
+
+        showBuffering(true);
+
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    PlayerData playerData = new PlayerData();
+                    playerData.aid = mAid;
+                    playerData.cid = mCid;
+                    playerData.qn = newQn;
+                    playerData.timeStamp = 0;
+
+                    PlayerApi.getVideo(playerData, false);
+                    final String newUrl = playerData.videoUrl;
+
+                    if (newUrl != null && newUrl.length() > 0) {
+                        final String[] newQnStrs = playerData.qnStrList;
+                        final int[] newQnVals = playerData.qnValueList;
+
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                videoUrl = newUrl;
+                                mCurrentQn = newQn;
+                                if (newQnStrs != null && newQnVals != null) {
+                                    mQualityNames = newQnStrs;
+                                    mQualityValues = newQnVals;
+                                }
+                                if (mQualityManager != null) {
+                                    mQualityManager.updateCurrentQuality(newQn);
+                                }
+                                cleanupAndRestartWithQuality();
+                            }
+                        });
+                    } else {
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                showBuffering(false);
+                                Toast.makeText(BiliPlayerActivity.this,
+                                        "切换画质失败，请重试", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                } catch (final Exception e) {
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            showBuffering(false);
+                            Toast.makeText(BiliPlayerActivity.this,
+                                    "切换画质失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void cleanupAndRestartWithQuality() {
+        if (localProxy != null) {
+            localProxy.stop();
+            localProxy = null;
+        }
+
+        if (mDanmakuManager != null) {
+            mDanmakuManager.pause();
+            mDanmakuManager.release();
+        }
+
+        releasePlayer();
+
+        final FrameLayout parent = (FrameLayout) videoView.getParent();
+        if (parent != null) {
+            parent.removeView(videoView);
+            videoView = new SurfaceView(this);
+            videoView.setKeepScreenOn(true);
+            surfaceHolder = videoView.getHolder();
+            surfaceHolder.addCallback(BiliPlayerActivity.this);
+            parent.addView(videoView, 0);
+            android.util.Log.e("BiliPlayer", "QualitySwitch: SurfaceView 已重新创建");
+        }
+
+        surfaceReady = false;
+        pendingPrepare = false;
+        isPrepared = false;
+        isPlaying = false;
+        updatePlayPauseButton();
+        mSeekWhenPrepared = mQualitySwitchSeekPos;
+        mQualitySwitchSeekPos = 0;
+
+        handler.postDelayed(new Runnable() {
+            public void run() {
+                if (mDanmakuManager != null) {
+                    mDanmakuManager.init();
+                }
+
+                if (surfaceHolder != null) {
+                    surfaceReady = true;
+                    preparePlayer();
+                } else {
+                    pendingPrepare = true;
+                }
+            }
+        }, 300);
     }
 
     private void setupGestureDetector() {
@@ -1795,6 +1935,7 @@ public class BiliPlayerActivity extends Activity implements
         if (bottomBar != null) bottomBar.setVisibility(View.GONE);
         if (btnBack != null) btnBack.setVisibility(View.GONE);
         hideOptionsMenu();
+        if (mQualityManager != null) mQualityManager.hideQualityList();
         controlsVisible = false;
         handler.removeMessages(MSG_HIDE_CONTROLS);
     }
@@ -1923,6 +2064,10 @@ public class BiliPlayerActivity extends Activity implements
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (mQualityManager != null && mQualityManager.isQualityListVisible()) {
+                mQualityManager.hideQualityList();
+                return true;
+            }
             if (mDanmakuManager != null && mDanmakuManager.isInputVisible()) {
                 mDanmakuManager.hideInputPanel(mPlayControl);
                 return true;
@@ -1966,6 +2111,10 @@ public class BiliPlayerActivity extends Activity implements
         if (mToastViewHolder != null) {
             mToastViewHolder.release();
             mToastViewHolder = null;
+        }
+        if (mQualityManager != null) {
+            mQualityManager.release();
+            mQualityManager = null;
         }
         releasePlayer();
     }
