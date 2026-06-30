@@ -756,12 +756,12 @@ public class OfflineActivity extends BaseActivity {
     private String formatFileSize(long size) {
         if (size < 1024) {
             return size + " B";
-        } else if (size < 1024 * 1024) {
-            return (size / 1024) + " KB";
-        } else if (size < 1024 * 1024 * 1024) {
-            return (size / 1024 / 1024) + " MB";
+        } else if (size < 1024L * 1024) {
+            return String.format("%.1f KB", size / 1024.0f);
+        } else if (size < 1024L * 1024 * 1024) {
+            return String.format("%.1f MB", size / (1024.0f * 1024));
         } else {
-            return (size / 1024 / 1024 / 1024) + " GB";
+            return String.format("%.1f GB", size / (1024.0f * 1024 * 1024));
         }
     }
 
