@@ -1,3 +1,19 @@
+/*
+ * 本软件基于以下项目修改，致谢前辈：
+ *   - 哔哩终端 (BiliTerminal) by RobinNotBad
+ *   - 腕上哔哩 (WristBilibili) by luern0313
+ *
+ * 本程序是自由软件，遵循 GNU 通用公共许可证第 3 版（或更高版本）发布。
+ * 你可以重新分发或修改它，希望它能为你带来快乐。
+ *
+ * 详情请参阅 GNU 通用公共许可证：
+ * <https://www.gnu.org/licenses/>
+ *
+ * 修改者：一只毛子球 (BiliClassic)
+ * 修改时间：2026年6月19日
+ *
+ * 安卓2也要看B站！
+ */
 package tv.biliclassic.util;
 
 import android.util.Log;
@@ -122,21 +138,43 @@ public class NetWorkUtil {
 
     /**
      * 从 Cookie 字符串中获取指定名称的值（自动 URL 解码）
+     * 修复：使用正则提取，避免 JSON 污染
      */
     public static synchronized String getInfoFromCookie(String name, String cookie) {
         if (cookie == null || cookie.length() == 0) {
             return "";
         }
-        Map map = parseCookieMap(cookie);
-        String value = (String) map.get(name);
-        if (value == null || value.length() == 0) {
-            return "";
+
+        // 直接用正则提取，避免 parseCookieMap 解析 JSON 污染
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(name + "=([^;\\s]+)");
+        java.util.regex.Matcher m = p.matcher(cookie);
+        if (m.find()) {
+            String value = m.group(1);
+            // 如果提取的值包含引号或逗号，说明被污染了，尝试用 URL 解码
+            if (value != null && value.length() > 0) {
+                try {
+                    return URLDecoder.decode(value, "UTF-8");
+                } catch (UnsupportedEncodingException e) {
+                    return value;
+                }
+            }
         }
-        try {
-            return URLDecoder.decode(value, "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            return value;
+        return "";
+    }
+
+    /**
+     * 从 Cookie 提取 bili_jct（专门方法，用正则）
+     */
+    public static synchronized String getCsrfFromCookie(String cookie) {
+        if (cookie == null || cookie.length() == 0) {
+            return null;
         }
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("bili_jct=([a-f0-9]+)");
+        java.util.regex.Matcher m = p.matcher(cookie);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return null;
     }
 
     // SSL 相关

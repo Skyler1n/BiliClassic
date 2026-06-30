@@ -10,7 +10,7 @@
  * <https://www.gnu.org/licenses/>
  *
  * 修改者：一只毛子球 (BiliClassic)
- * 修改时间：2026年6月19日
+ * 修改时间：2026年6月30日
  *
  * 安卓2也要看B站！
  */
@@ -22,10 +22,16 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.HashMap;
+import java.util.List;
 
 import tv.biliclassic.model.Collection;
 import tv.biliclassic.model.FavoriteFolder;
@@ -37,10 +43,9 @@ import tv.biliclassic.util.StringUtil;
 public class FavoriteApi {
 
     private static final String TAG = "FavoriteApi";
+    private static final int TYPE_VIDEO = 2;
 
-    /**
-     * 构建带 Cookie 的请求头
-     */
+    // 构建带 Cookie 的请求头
     private static ArrayList buildHeaders() {
         ArrayList headers = new ArrayList();
         String cookies = SharedPreferencesUtil.getString("cookies", "");
@@ -59,17 +64,39 @@ public class FavoriteApi {
         if (cookies != null && cookies.length() > 0) {
             headers.add("Cookie");
             headers.add(cookies);
-            Log.e(TAG, "Cookie已添加，长度: " + cookies.length());
+            Log.d(TAG, "Cookie已添加，长度: " + cookies.length());
         } else {
-            Log.e(TAG, "警告：Cookie为空");
+            Log.w(TAG, "警告：Cookie为空");
         }
 
         return headers;
     }
 
-    /**
-     * 快速获取收藏夹列表（不含封面，仅新接口，速度最快）
-     */
+    // 通过 bvid 获取 aid
+    public static long getAidByBvid(String bvid) {
+        if (bvid == null || bvid.length() == 0) {
+            return 0L;
+        }
+        try {
+            String url = "https://api.bilibili.com/x/web-interface/view?bvid=" + bvid;
+            String response = NetWorkUtil.get(url);
+            if (response == null || response.length() == 0) {
+                return 0L;
+            }
+            JSONObject result = new JSONObject(response);
+            if (result.optInt("code") == 0) {
+                JSONObject data = result.optJSONObject("data");
+                if (data != null) {
+                    return data.optLong("aid", 0L);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "获取 aid 失败: " + e.getMessage());
+        }
+        return 0L;
+    }
+
+    // 快速获取收藏夹列表（不含封面）
     public static ArrayList getFavoriteFoldersFast(long mid) throws IOException, JSONException {
         ArrayList headers = buildHeaders();
 
@@ -83,7 +110,7 @@ public class FavoriteApi {
         JSONObject result = new JSONObject(response);
         int code = result.optInt("code", -1);
         if (code != 0) {
-            Log.e(TAG, "新接口返回错误: " + code);
+            Log.w(TAG, "新接口返回错误: " + code);
             return new ArrayList();
         }
 
@@ -115,13 +142,11 @@ public class FavoriteApi {
             }
         }
 
-        Log.e(TAG, "快速获取到 " + folderList.size() + " 个收藏夹");
+        Log.d(TAG, "快速获取到 " + folderList.size() + " 个收藏夹");
         return folderList;
     }
 
-    /**
-     * 获取收藏夹封面映射
-     */
+    // 获取收藏夹封面映射
     public static HashMap getCoverMap(long mid) throws IOException, JSONException {
         HashMap coverMap = new HashMap();
         ArrayList headers = buildHeaders();
@@ -148,13 +173,13 @@ public class FavoriteApi {
                                         cover = firstVideo.optString("pic", "");
                                     }
                                 }
-                                coverMap.put(new Long(fid), cover);
+                                coverMap.put(Long.valueOf(fid), cover);
                             }
                         }
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "获取旧接口封面失败: " + e.getMessage());
+                Log.w(TAG, "获取旧接口封面失败: " + e.getMessage());
             }
         }
 
@@ -175,10 +200,10 @@ public class FavoriteApi {
                                 int attr = folder.optInt("attr", 0);
                                 boolean isPrivate = (attr & 2) != 0;
 
-                                if (isPrivate && !coverMap.containsKey(new Long(fid))) {
+                                if (isPrivate && !coverMap.containsKey(Long.valueOf(fid))) {
                                     String cover = getFirstVideoCover(mid, fid, headers);
                                     if (cover != null && cover.length() > 0) {
-                                        coverMap.put(new Long(fid), cover);
+                                        coverMap.put(Long.valueOf(fid), cover);
                                     }
                                 }
                             }
@@ -186,16 +211,14 @@ public class FavoriteApi {
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "获取私密收藏夹封面失败: " + e.getMessage());
+                Log.w(TAG, "获取私密收藏夹封面失败: " + e.getMessage());
             }
         }
 
         return coverMap;
     }
 
-    /**
-     * 获取收藏夹内第一个视频作为封面
-     */
+    // 获取收藏夹内第一个视频作为封面
     private static String getFirstVideoCover(long mid, long fid, ArrayList headers) {
         try {
             String url = "https://api.bilibili.com/x/space/fav/arc?vmid=" + mid
@@ -223,39 +246,38 @@ public class FavoriteApi {
                 return firstVideo.optString("pic", "");
             }
         } catch (Exception e) {
-            Log.e(TAG, "获取第一个视频封面失败: " + e.getMessage());
+            Log.w(TAG, "获取第一个视频封面失败: " + e.getMessage());
         }
         return "";
     }
 
-    /**
-     * 获取收藏夹内的视频列表
-     */
+    // 获取收藏夹内的视频列表
+    // 返回 0=成功, 1=无更多数据, -1=失败
     public static int getFolderVideos(long mid, long fid, int page, ArrayList videoList) throws IOException, JSONException {
         String url = "https://api.bilibili.com/x/space/fav/arc?vmid=" + mid
                 + "&ps=30&fid=" + fid + "&tid=0&keyword=&pn=" + page + "&order=fav_time";
-        Log.e(TAG, "获取收藏夹视频: " + url);
+        Log.d(TAG, "获取收藏夹视频: " + url);
 
         ArrayList headers = buildHeaders();
 
         String rawResponse = NetWorkUtil.get(url, headers);
         if (rawResponse == null || rawResponse.length() == 0) {
-            Log.e(TAG, "getFolderVideos: 响应为空");
+            Log.w(TAG, "getFolderVideos: 响应为空");
             return -1;
         }
 
         JSONObject result = new JSONObject(rawResponse);
         int code = result.optInt("code", -1);
-        Log.e(TAG, "getFolderVideos 响应码: " + code);
+        Log.d(TAG, "getFolderVideos 响应码: " + code);
 
         if (code != 0) {
-            Log.e(TAG, "获取收藏夹视频失败: " + code + " - " + result.optString("message", ""));
+            Log.w(TAG, "获取收藏夹视频失败: " + code + " - " + result.optString("message", ""));
             return -1;
         }
 
         JSONObject data = result.optJSONObject("data");
         if (data == null) {
-            Log.e(TAG, "data 为 null");
+            Log.w(TAG, "data 为 null");
             return -1;
         }
 
@@ -285,7 +307,9 @@ public class FavoriteApi {
                 String view = "0观看";
                 if (video.has("stat") && !video.isNull("stat")) {
                     JSONObject stat = video.getJSONObject("stat");
-                    view = StringUtil.toWan(stat.optLong("view", 0)) + "观看";
+                    long viewCount = stat.optLong("view", 0);
+                    String wanStr = StringUtil.toWan(viewCount);
+                    view = (wanStr != null ? wanStr : "0") + "观看";
                 }
 
                 videoList.add(new VideoCard(title, upName, view, cover, aid, bvid));
@@ -296,9 +320,7 @@ public class FavoriteApi {
         }
     }
 
-    /**
-     * 获取收藏的合集
-     */
+    // 获取收藏的合集
     public static int getFavoritedCollections(long mid, int page, List collectionList) throws JSONException, IOException {
         String url = "https://api.bilibili.com/x/v3/fav/folder/collected/list" + new NetWorkUtil.FormData()
                 .setUrlParam(true)
@@ -306,20 +328,20 @@ public class FavoriteApi {
                 .put("up_mid", mid)
                 .put("pn", page)
                 .put("ps", 10);
-        Log.e(TAG, "获取收藏合集: " + url);
+        Log.d(TAG, "获取收藏合集: " + url);
 
         ArrayList headers = buildHeaders();
         String rawResponse = NetWorkUtil.get(url, headers);
 
         if (rawResponse == null || rawResponse.length() == 0) {
-            Log.e(TAG, "getFavoritedCollections: 响应为空");
+            Log.w(TAG, "getFavoritedCollections: 响应为空");
             return -1;
         }
 
         JSONObject result = new JSONObject(rawResponse);
         int code = result.optInt("code", -1);
         if (code != 0) {
-            Log.e(TAG, "获取收藏合集失败: " + code);
+            Log.w(TAG, "获取收藏合集失败: " + code);
             return code;
         }
 
@@ -344,37 +366,35 @@ public class FavoriteApi {
         return -1;
     }
 
-    /**
-     * 获取视频的收藏状态
-     */
+    // 获取视频的收藏状态
     public static void getFavoriteState(long aid, ArrayList folderList, ArrayList fidList, ArrayList stateList) throws IOException, JSONException {
         long mid = SharedPreferencesUtil.getLong("mid", 0);
         if (mid == 0) {
-            Log.e(TAG, "未登录，无法获取收藏状态");
+            Log.w(TAG, "未登录，无法获取收藏状态");
             return;
         }
 
         String url = "https://api.bilibili.com/x/v3/fav/folder/created/list-all?type=2&jsonp=jsonp&rid=" + aid + "&up_mid=" + mid;
-        Log.e(TAG, "获取收藏状态: " + url);
+        Log.d(TAG, "获取收藏状态: " + url);
 
         ArrayList headers = buildHeaders();
         String rawResponse = NetWorkUtil.get(url, headers);
 
         if (rawResponse == null || rawResponse.length() == 0) {
-            Log.e(TAG, "getFavoriteState: 响应为空");
+            Log.w(TAG, "getFavoriteState: 响应为空");
             return;
         }
 
         JSONObject result = new JSONObject(rawResponse);
         int code = result.optInt("code", -1);
         if (code != 0) {
-            Log.e(TAG, "获取收藏状态失败: " + code + " - " + result.optString("message", ""));
+            Log.w(TAG, "获取收藏状态失败: " + code + " - " + result.optString("message", ""));
             return;
         }
 
         JSONObject data = result.optJSONObject("data");
         if (data == null) {
-            Log.e(TAG, "data 为 null");
+            Log.w(TAG, "data 为 null");
             return;
         }
 
@@ -384,96 +404,186 @@ public class FavoriteApi {
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject folder = list.getJSONObject(i);
                     folderList.add(folder.optString("title", "未命名"));
-                    fidList.add(new Long(folder.optLong("fid", 0)));
-                    stateList.add(new Boolean(folder.optInt("fav_state", 0) == 1));
+                    fidList.add(Long.valueOf(folder.optLong("fid", 0)));
+                    stateList.add(folder.optInt("fav_state", 0) == 1);
                 }
             }
         }
     }
 
-    /**
-     * 添加收藏
-     */
-    public static int addFavorite(long aid, long fid) throws IOException, JSONException {
+    // 获取 CSRF token（使用正则提取）
+    private static String getCsrf() {
+        String cookies = SharedPreferencesUtil.getString("cookies", "");
+        if (cookies == null || cookies.length() == 0) {
+            Log.w(TAG, "Cookie 为空");
+            return null;
+        }
+
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("bili_jct=([a-f0-9]+)");
+        java.util.regex.Matcher m = p.matcher(cookies);
+        if (m.find()) {
+            String csrf = m.group(1);
+            Log.d(TAG, "提取 csrf: " + csrf);
+            return csrf;
+        }
+
+        Log.w(TAG, "未找到 bili_jct");
+        return null;
+    }
+
+    // 获取 mid 后两位
+    private static String getMidSuffix() {
         String strMid = String.valueOf(SharedPreferencesUtil.getLong("mid", 0));
         if (strMid == null || strMid.length() < 2) {
-            Log.e(TAG, "mid 无效，无法添加收藏");
+            return "";
+        }
+        return strMid.substring(strMid.length() - 2);
+    }
+
+    // 添加收藏（支持 aid 或 bvid）
+    public static int addFavorite(long aid, String bvid, long fid) throws IOException, JSONException {
+        long finalAid = aid;
+        if (finalAid == 0 && bvid != null && bvid.length() > 0) {
+            finalAid = getAidByBvid(bvid);
+            Log.d(TAG, "从 bvid 获取 aid: " + finalAid);
+        }
+        if (finalAid == 0) {
+            Log.w(TAG, "aid 无效，无法添加收藏");
+            return -1;
+        }
+        return addFavoriteByAid(finalAid, fid);
+    }
+
+    // 通过 aid 添加收藏
+    public static int addFavoriteByAid(long aid, long fid) throws IOException, JSONException {
+        String midSuffix = getMidSuffix();
+        if (midSuffix == null || midSuffix.length() == 0) {
+            Log.w(TAG, "mid 无效");
             return -1;
         }
 
-        String addFid = fid + strMid.substring(strMid.length() - 2);
-        String url = "https://api.bilibili.com/medialist/gateway/coll/resource/deal";
-
-        String csrf = SharedPreferencesUtil.getString("csrf", "");
-        if (csrf == null || csrf.length() == 0) {
-            String cookies = SharedPreferencesUtil.getString("cookies", "");
-            csrf = NetWorkUtil.getInfoFromCookie("bili_jct", cookies);
-        }
-
-        String data = "rid=" + aid + "&type=2&add_media_ids=" + addFid + "&del_media_ids=&csrf=" + csrf;
-
-        ArrayList headers = new ArrayList();
+        String addFid = fid + midSuffix;
+        String url = "https://api.bilibili.com/x/v3/fav/resource/deal";
+        String csrf = getCsrf();
         String cookies = SharedPreferencesUtil.getString("cookies", "");
 
-        headers.add("User-Agent");
-        headers.add(NetWorkUtil.USER_AGENT_WEB);
-        headers.add("Referer");
-        headers.add("https://www.bilibili.com/");
-        headers.add("Content-Type");
-        headers.add("application/x-www-form-urlencoded");
-
-        if (cookies != null && cookies.length() > 0) {
-            headers.add("Cookie");
-            headers.add(cookies);
+        if (csrf == null || csrf.length() == 0) {
+            Log.w(TAG, "csrf 无效");
+            return -1;
         }
 
-        String response = NetWorkUtil.post(url, data, headers);
-        Log.d(TAG, "添加收藏响应: " + response);
+        String data = "rid=" + aid + "&type=" + TYPE_VIDEO + "&add_media_ids=" + addFid + "&del_media_ids=&csrf=" + csrf;
 
-        JSONObject result = new JSONObject(response);
+        Log.d(TAG, "=== 收藏调试 ===");
+        Log.d(TAG, "aid: " + aid);
+        Log.d(TAG, "fid: " + fid + ", midSuffix: " + midSuffix + ", addFid: " + addFid);
+        Log.d(TAG, "csrf: " + csrf);
+        Log.d(TAG, "请求数据: " + data);
+
+        URL urlObj = new URL(url);
+        HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(10000);
+
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15");
+        conn.setRequestProperty("Referer", "https://www.bilibili.com/");
+        conn.setRequestProperty("Cookie", cookies);
+        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        conn.setRequestProperty("Origin", "https://www.bilibili.com");
+
+        OutputStream os = conn.getOutputStream();
+        os.write(data.getBytes("UTF-8"));
+        os.flush();
+        os.close();
+
+        int responseCode = conn.getResponseCode();
+        InputStream is = (responseCode >= 400) ? conn.getErrorStream() : conn.getInputStream();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            sb.append(line);
+        }
+        reader.close();
+        conn.disconnect();
+
+        Log.d(TAG, "添加收藏响应: " + sb.toString());
+
+        JSONObject result = new JSONObject(sb.toString());
         return result.optInt("code", -1);
     }
 
-    /**
-     * 删除收藏
-     */
-    public static int deleteFavorite(long aid, long fid) throws IOException, JSONException {
-        String strMid = String.valueOf(SharedPreferencesUtil.getLong("mid", 0));
-        if (strMid == null || strMid.length() < 2) {
-            Log.e(TAG, "mid 无效，无法删除收藏");
+    // 删除收藏（支持 aid 或 bvid）
+    public static int deleteFavorite(long aid, String bvid, long fid) throws IOException, JSONException {
+        long finalAid = aid;
+        if (finalAid == 0 && bvid != null && bvid.length() > 0) {
+            finalAid = getAidByBvid(bvid);
+            Log.d(TAG, "从 bvid 获取 aid: " + finalAid);
+        }
+        if (finalAid == 0) {
+            Log.w(TAG, "aid 无效，无法删除收藏");
+            return -1;
+        }
+        return deleteFavoriteByAid(finalAid, fid);
+    }
+
+    // 通过 aid 删除收藏
+    public static int deleteFavoriteByAid(long aid, long fid) throws IOException, JSONException {
+        String midSuffix = getMidSuffix();
+        if (midSuffix == null || midSuffix.length() == 0) {
+            Log.w(TAG, "mid 无效，无法删除收藏");
             return -1;
         }
 
-        String delFid = fid + strMid.substring(strMid.length() - 2);
-        String url = "https://api.bilibili.com/medialist/gateway/coll/resource/batch/del";
+        String delFid = fid + midSuffix;
+        String url = "https://api.bilibili.com/x/v3/fav/resource/batch-del";
+        String csrf = getCsrf();
 
-        String csrf = SharedPreferencesUtil.getString("csrf", "");
+        Log.d(TAG, "=== 删除收藏调试 ===");
+        Log.d(TAG, "aid: " + aid + ", delFid: " + delFid);
+        Log.d(TAG, "csrf: " + csrf);
+
         if (csrf == null || csrf.length() == 0) {
-            String cookies = SharedPreferencesUtil.getString("cookies", "");
-            csrf = NetWorkUtil.getInfoFromCookie("bili_jct", cookies);
+            Log.w(TAG, "csrf 无效，无法删除收藏");
+            return -1;
         }
 
-        String data = "resources=" + aid + ":2&media_id=" + delFid + "&csrf=" + csrf;
+        String data = "resources=" + aid + ":" + TYPE_VIDEO + "&media_id=" + delFid + "&csrf=" + csrf;
 
-        ArrayList headers = new ArrayList();
-        String cookies = SharedPreferencesUtil.getString("cookies", "");
+        URL urlObj = new URL(url);
+        HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(10000);
 
-        headers.add("User-Agent");
-        headers.add(NetWorkUtil.USER_AGENT_WEB);
-        headers.add("Referer");
-        headers.add("https://www.bilibili.com/");
-        headers.add("Content-Type");
-        headers.add("application/x-www-form-urlencoded");
+        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (iPad; CPU OS 18_5 like Mac OS X) AppleWebKit/605.1.15");
+        conn.setRequestProperty("Referer", "https://space.bilibili.com/");
+        conn.setRequestProperty("Cookie", SharedPreferencesUtil.getString("cookies", ""));
+        conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+        conn.setRequestProperty("Origin", "https://space.bilibili.com");
 
-        if (cookies != null && cookies.length() > 0) {
-            headers.add("Cookie");
-            headers.add(cookies);
+        OutputStream os = conn.getOutputStream();
+        os.write(data.getBytes("UTF-8"));
+        os.flush();
+        os.close();
+
+        int responseCode = conn.getResponseCode();
+        InputStream is = (responseCode >= 400) ? conn.getErrorStream() : conn.getInputStream();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            sb.append(line);
         }
+        reader.close();
+        conn.disconnect();
 
-        String response = NetWorkUtil.post(url, data, headers);
-        Log.d(TAG, "删除收藏响应: " + response);
+        Log.d(TAG, "删除收藏响应: " + sb.toString());
 
-        JSONObject result = new JSONObject(response);
+        JSONObject result = new JSONObject(sb.toString());
         return result.optInt("code", -1);
     }
 }

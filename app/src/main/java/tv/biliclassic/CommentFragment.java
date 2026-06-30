@@ -64,7 +64,6 @@ public class CommentFragment extends Fragment {
         adapter = new CommentAdapter(getActivity(), commentList);
         listView.setAdapter(adapter);
 
-        // 设置评论点击监听
         adapter.setOnUserClickListener(new CommentAdapter.OnUserClickListener() {
             @Override
             public void onUserClick(long mid, String userName) {
@@ -132,6 +131,17 @@ public class CommentFragment extends Fragment {
         if (adapter != null) {
             adapter.clearCache();
         }
+    }
+
+    // 刷新评论（供外部调用）
+    public void refreshComments() {
+        if (isLoading) return;
+        // 重置状态，重新加载
+        nextCursor = "";
+        isEnd = false;
+        commentList.clear();
+        commentIdSet.clear();
+        loadComments();
     }
 
     private void loadComments() {
@@ -270,7 +280,6 @@ public class CommentFragment extends Fragment {
                 JSONObject member = reply.optJSONObject("member");
                 if (member != null) {
                     item.userName = member.optString("uname", "匿名用户");
-                    // 获取 mid
                     item.mid = member.optLong("mid", 0);
                     String avatar = member.optString("avatar", "");
                     if (avatar != null && avatar.length() > 0) {

@@ -157,7 +157,8 @@ public class FavoriteVideoListActivity extends BaseActivity {
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    final int result = FavoriteApi.deleteFavorite(video.aid, fid);
+                    // 使用带 bvid 参数的方法，传 null 表示没有 bvid
+                    final int result = FavoriteApi.deleteFavorite(video.aid, null, fid);
                     Log.e("FavoriteVideo", "删除结果: " + result);
                     mainHandler.post(new Runnable() {
                         public void run() {

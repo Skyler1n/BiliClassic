@@ -17,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.RadioGroup;
@@ -27,8 +28,12 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+import tv.biliclassic.api.FavoriteApi;
+import tv.biliclassic.api.ReplyApi;
 import tv.biliclassic.download.VideoDownloadService;
 import tv.biliclassic.download.VideoDownloadEnvironment;
+import tv.biliclassic.model.FavoriteFolder;
+import tv.biliclassic.util.SharedPreferencesUtil;
 
 public class VideoDetailActivity extends BaseActivity {
 
@@ -64,6 +69,16 @@ public class VideoDetailActivity extends BaseActivity {
     private int mSelectedQuality = 64;
     private String mSelectedQualityName = "720P 高清";
     private AlertDialog mDownloadDialog;
+
+    // 收藏相关
+    private boolean mIsFavorited = false;
+    private ImageView btnFavorite;
+    private boolean mIsFavoriteLoading = false;
+    private boolean mIsFavoriteUpdating = false;
+    private boolean mIsDeleteDialogShowing = false;
+
+    // 评论相关
+    private ImageView btnComment;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -119,15 +134,67 @@ public class VideoDetailActivity extends BaseActivity {
             });
         }
 
+        // 收藏按钮
+        btnFavorite = (ImageView) findViewById(R.id.btn_favorite);
+        if (btnFavorite != null) {
+            btnFavorite.setImageResource(R.drawable.ic_action_rating_important);
+            if (mOfflineMode) {
+                btnFavorite.setVisibility(View.GONE);
+            } else {
+                btnFavorite.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        if (mIsFavoriteLoading || mIsFavoriteUpdating) {
+                            return;
+                        }
+                        final long finalAid = getCorrectAid();
+                        if (finalAid == 0L) {
+                            Toast.makeText(VideoDetailActivity.this, "无法获取视频信息", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        long mid = SharedPreferencesUtil.getLong("mid", 0);
+                        String cookies = SharedPreferencesUtil.getString("cookies", "");
+                        if (mid == 0 || cookies == null || cookies.length() == 0) {
+                            Toast.makeText(VideoDetailActivity.this, "请先登录", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        showFavoriteDialog();
+                    }
+                });
+                checkFavoriteState();
+            }
+        }
+
+        // 评论按钮
+        btnComment = (ImageView) findViewById(R.id.btn_comment);
+        if (btnComment != null) {
+            if (mOfflineMode) {
+                btnComment.setVisibility(View.GONE);
+            } else {
+                btnComment.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        long mid = SharedPreferencesUtil.getLong("mid", 0);
+                        String cookies = SharedPreferencesUtil.getString("cookies", "");
+                        if (mid == 0 || cookies == null || cookies.length() == 0) {
+                            Toast.makeText(VideoDetailActivity.this, "请先登录", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        showSendCommentDialog();
+                    }
+                });
+            }
+        }
+
         // 下载/删除按钮
         ImageView btnDownload = (ImageView) findViewById(R.id.btn_download);
         if (btnDownload != null) {
             if (mOfflineMode) {
-                // 离线模式：显示删除按钮
-                btnDownload.setImageResource(R.drawable.ic_action_delete);
+                btnDownload.setImageResource(android.R.drawable.ic_menu_delete);
                 btnDownload.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
+                        if (mIsDeleteDialogShowing) return;
                         showDeleteConfirmDialog();
                     }
                 });
@@ -188,6 +255,11 @@ public class VideoDetailActivity extends BaseActivity {
             viewPager.setAdapter(new VideoDetailPagerAdapter(getSupportFragmentManager()));
             viewPager.setCurrentItem(currentPagePosition, false);
         }
+        if (!mOfflineMode && btnFavorite != null) {
+            checkFavoriteState();
+        }
+        // 重置删除对话框状态
+        mIsDeleteDialogShowing = false;
     }
 
     @Override
@@ -280,8 +352,343 @@ public class VideoDetailActivity extends BaseActivity {
         }
     }
 
-    // 显示删除确认对话框（离线模式用）
+    // 显示发送评论对话框
+    private void showSendCommentDialog() {
+        final EditText input = new EditText(this);
+        input.setHint("输入评论内容...");
+        input.setLines(3);
+
+        new AlertDialog.Builder(this)
+                .setTitle("发送评论")
+                .setView(input)
+                .setPositiveButton("发送", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String text = input.getText().toString().trim();
+                        if (text == null || text.length() == 0) {
+                            Toast.makeText(VideoDetailActivity.this, "评论内容不能为空", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        sendComment(text);
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    // 发送评论
+    private void sendComment(final String text) {
+        Toast.makeText(this, "正在发送评论...", Toast.LENGTH_SHORT).show();
+
+        // 确保 aid 正确（如果是 BV 号，从 Fragment 获取 aid）
+        final long finalAid = getCorrectAid();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    // 清理脏 csrf
+                    String cookies = SharedPreferencesUtil.getString("cookies", "");
+                    String cleanCsrf = extractCsrfFromCookie(cookies);
+                    if (cleanCsrf != null && cleanCsrf.length() > 0) {
+                        SharedPreferencesUtil.putString("csrf", cleanCsrf);
+                    }
+
+                    final ReplyApi.ReplyResult result = ReplyApi.sendReply(finalAid, 0, 0, text, ReplyApi.REPLY_TYPE_VIDEO);
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (result.code == 0) {
+                                Toast.makeText(VideoDetailActivity.this, "评论发送成功", Toast.LENGTH_SHORT).show();
+                                // 刷新评论列表
+                                refreshComments();
+                            } else {
+                                Toast.makeText(VideoDetailActivity.this, "发送失败: " + result.code, Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                    });
+
+                } catch (final Exception e) {
+                    e.printStackTrace();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(VideoDetailActivity.this, "发送失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    // 获取正确的 aid（支持 BV 号）
+    private long getCorrectAid() {
+        if (aid != 0L) {
+            return aid;
+        }
+        if (videoDetailFragment != null && videoDetailFragment.videoInfo != null) {
+            return videoDetailFragment.videoInfo.aid;
+        }
+        // 如果 fragment 还没加载，尝试从 bvid 获取
+        if (bvid != null && bvid.length() > 0) {
+            try {
+                return FavoriteApi.getAidByBvid(bvid);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return 0L;
+    }
+
+    // 刷新评论列表
+    private void refreshComments() {
+        // 切换到评论 Tab
+        if (viewPager != null) {
+            viewPager.setCurrentItem(2);
+        }
+        // 通知 CommentFragment 刷新
+        Fragment fragment = getSupportFragmentManager().findFragmentByTag(
+                "android:switcher:" + R.id.viewpager + ":2");
+        if (fragment instanceof CommentFragment) {
+            ((CommentFragment) fragment).refreshComments();
+        }
+    }
+
+    private String extractCsrfFromCookie(String cookie) {
+        if (cookie == null || cookie.length() == 0) {
+            return null;
+        }
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("bili_jct=([a-f0-9]+)");
+        java.util.regex.Matcher m = p.matcher(cookie);
+        if (m.find()) {
+            return m.group(1);
+        }
+        return null;
+    }
+
+    // 收藏功能
+
+    // 检查收藏状态
+    private void checkFavoriteState() {
+        final long finalAid = getCorrectAid();
+        if (finalAid == 0L) return;
+        long mid = SharedPreferencesUtil.getLong("mid", 0);
+        if (mid == 0) return;
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    ArrayList folderList = new ArrayList();
+                    ArrayList fidList = new ArrayList();
+                    ArrayList stateList = new ArrayList();
+
+                    FavoriteApi.getFavoriteState(finalAid, folderList, fidList, stateList);
+
+                    boolean favorited = false;
+                    for (int i = 0; i < stateList.size(); i++) {
+                        Boolean state = (Boolean) stateList.get(i);
+                        if (state != null && state.booleanValue()) {
+                            favorited = true;
+                            break;
+                        }
+                    }
+
+                    final boolean finalFavorited = favorited;
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            mIsFavorited = finalFavorited;
+                        }
+                    });
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
+
+    // 显示收藏对话框
+    private void showFavoriteDialog() {
+        if (mIsFavoriteUpdating) {
+            return;
+        }
+
+        final long finalAid = getCorrectAid();
+        if (finalAid == 0L) {
+            Toast.makeText(this, "无法获取视频信息", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        final long mid = SharedPreferencesUtil.getLong("mid", 0);
+        if (mid == 0) {
+            Toast.makeText(this, "请先登录", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        mIsFavoriteLoading = true;
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final ArrayList folders = FavoriteApi.getFavoriteFoldersFast(mid);
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            mIsFavoriteLoading = false;
+                            if (folders == null || folders.size() == 0) {
+                                Toast.makeText(VideoDetailActivity.this, "暂无收藏夹，请先在网页端创建", Toast.LENGTH_LONG).show();
+                                return;
+                            }
+
+                            if (mIsFavorited) {
+                                showUnfavoriteConfirmDialog();
+                                return;
+                            }
+
+                            final String[] folderNames = new String[folders.size()];
+                            final long[] folderIds = new long[folders.size()];
+                            for (int i = 0; i < folders.size(); i++) {
+                                FavoriteFolder folder = (FavoriteFolder) folders.get(i);
+                                folderNames[i] = folder.name + " (" + folder.videoCount + "个视频)";
+                                folderIds[i] = folder.fid;
+                            }
+
+                            new AlertDialog.Builder(VideoDetailActivity.this)
+                                    .setTitle("选择收藏夹")
+                                    .setItems(folderNames, new DialogInterface.OnClickListener() {
+                                        @Override
+                                        public void onClick(DialogInterface dialog, int which) {
+                                            long fid = folderIds[which];
+                                            addToFavorite(finalAid, fid);
+                                        }
+                                    })
+                                    .setNegativeButton("取消", null)
+                                    .show();
+                        }
+                    });
+
+                } catch (final Exception e) {
+                    e.printStackTrace();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            mIsFavoriteLoading = false;
+                            Toast.makeText(VideoDetailActivity.this, "加载收藏夹失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void showUnfavoriteConfirmDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("已收藏")
+                .setMessage("该视频已经收藏过了，是否要取消收藏？")
+                .setPositiveButton("取消收藏", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        removeFromFavorite();
+                    }
+                })
+                .setNegativeButton("保留", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        // 什么都不做
+                    }
+                })
+                .show();
+    }
+
+    private void addToFavorite(final long finalAid, final long fid) {
+        if (finalAid == 0L || mIsFavoriteUpdating) return;
+
+        mIsFavoriteUpdating = true;
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final int code = FavoriteApi.addFavorite(finalAid, bvid, fid);
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            mIsFavoriteUpdating = false;
+                            if (code == 0) {
+                                mIsFavorited = true;
+                                Toast.makeText(VideoDetailActivity.this, "收藏成功", Toast.LENGTH_SHORT).show();
+                            } else if (code == 11201) {
+                                mIsFavorited = true;
+                                Toast.makeText(VideoDetailActivity.this, "已收藏过该视频", Toast.LENGTH_SHORT).show();
+                            } else {
+                                Toast.makeText(VideoDetailActivity.this, "收藏失败: " + code, Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                    });
+
+                } catch (final Exception e) {
+                    e.printStackTrace();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            mIsFavoriteUpdating = false;
+                            Toast.makeText(VideoDetailActivity.this, "收藏失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void removeFromFavorite() {
+        final long finalAid = getCorrectAid();
+        if (finalAid == 0L || mIsFavoriteUpdating) return;
+
+        mIsFavoriteUpdating = true;
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final int code = FavoriteApi.deleteFavorite(finalAid, bvid, 0);
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            mIsFavoriteUpdating = false;
+                            if (code == 0) {
+                                mIsFavorited = false;
+                                Toast.makeText(VideoDetailActivity.this, "已取消收藏", Toast.LENGTH_SHORT).show();
+                            } else {
+                                Toast.makeText(VideoDetailActivity.this, "取消收藏失败", Toast.LENGTH_SHORT).show();
+                            }
+                        }
+                    });
+
+                } catch (final Exception e) {
+                    e.printStackTrace();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            mIsFavoriteUpdating = false;
+                            Toast.makeText(VideoDetailActivity.this, "取消收藏失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    // 删除离线视频
+
     private void showDeleteConfirmDialog() {
+        mIsDeleteDialogShowing = true;
         String title = "";
         if (videoDetailFragment != null && videoDetailFragment.videoInfo != null) {
             title = videoDetailFragment.videoInfo.title;
@@ -302,16 +709,33 @@ public class VideoDetailActivity extends BaseActivity {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         deleteOfflineVideo();
+                        mIsDeleteDialogShowing = false;
                     }
                 })
-                .setNegativeButton("取消", null)
+                .setNegativeButton("取消", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        mIsDeleteDialogShowing = false;
+                    }
+                })
+                .setOnCancelListener(new DialogInterface.OnCancelListener() {
+                    @Override
+                    public void onCancel(DialogInterface dialog) {
+                        mIsDeleteDialogShowing = false;
+                    }
+                })
                 .show();
     }
 
-    // 删除离线视频
     private void deleteOfflineVideo() {
+        final long finalAid = getCorrectAid();
+        if (finalAid == 0L) {
+            Toast.makeText(this, "无法获取视频ID", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         File downloadDir = getDownloadDir();
-        File avidDir = new File(downloadDir, String.valueOf(aid));
+        File avidDir = new File(downloadDir, String.valueOf(finalAid));
 
         if (avidDir.exists() && avidDir.isDirectory()) {
             boolean deleted = deleteRecursive(avidDir);
@@ -326,7 +750,6 @@ public class VideoDetailActivity extends BaseActivity {
         }
     }
 
-    // 递归删除文件/文件夹
     private boolean deleteRecursive(File file) {
         if (file == null || !file.exists()) {
             return false;
@@ -513,6 +936,8 @@ public class VideoDetailActivity extends BaseActivity {
         this.fragmentReady = true;
     }
 
+    // URI解析
+
     private void parseExternalUri(Uri data) {
         String scheme = data.getScheme();
         String host = data.getHost();
@@ -548,6 +973,8 @@ public class VideoDetailActivity extends BaseActivity {
             }
         }
     }
+
+    // ViewPager适配器
 
     private class VideoDetailPagerAdapter extends FragmentPagerAdapter {
         private String[] titles = {"视频详情", "相关视频", "评论"};

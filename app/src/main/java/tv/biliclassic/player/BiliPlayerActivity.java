@@ -1,6 +1,7 @@
 package tv.biliclassic.player;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
@@ -12,19 +13,16 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.util.DisplayMetrics;
-import android.view.GestureDetector;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
-import android.view.KeyEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewStub;
 import android.view.WindowManager;
-import android.app.AlertDialog;
-import java.io.IOException;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
@@ -32,13 +30,13 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.ProgressBar;
-import tv.biliclassic.widget.RadioGridGroup;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.Locale;
@@ -46,23 +44,20 @@ import java.util.Map;
 
 import tv.biliclassic.R;
 import tv.biliclassic.SettingsActivity;
+import tv.biliclassic.api.PlayerApi;
+import tv.biliclassic.model.PlayerData;
 import tv.biliclassic.player.danmaku.DanmakuManager;
 import tv.biliclassic.subsettings.DecoderSettingsActivity;
 import tv.biliclassic.util.NetWorkUtil;
+import tv.biliclassic.util.SharedPreferencesUtil;
+import tv.biliclassic.widget.RadioGridGroup;
 import tv.danmaku.ijk.media.player.AndroidMediaPlayer;
 import tv.danmaku.ijk.media.player.IMediaPlayer;
 import tv.danmaku.ijk.media.player.IjkMediaPlayer;
-import util.AudioManagerHelper;
-import util.BrightnessHelper;
 import util.LocalStreamProxy;
-import util.PlayerToastMessageViewHolder;
-import tv.biliclassic.util.SharedPreferencesUtil;
-import tv.biliclassic.api.PlayerApi;
-import tv.biliclassic.model.PlayerData;
 
-/************
- * 巨大屎山 *
- ************/
+// 正在拆除中的巨大屎山
+
 public class BiliPlayerActivity extends Activity implements
         SurfaceHolder.Callback,
         IMediaPlayer.OnPreparedListener,
@@ -82,7 +77,6 @@ public class BiliPlayerActivity extends Activity implements
     private static final int DECODER_SYSTEM = 0;
     private static final int DECODER_IJK = 1;
 
-    // Completion actions
     private static final int COMPLETION_ACTION_LOOP = 0;
     private static final int COMPLETION_ACTION_NEXT = 1;
     private static final int COMPLETION_ACTION_NEXT_LOOP = 2;
@@ -143,7 +137,7 @@ public class BiliPlayerActivity extends Activity implements
     private long mCid;
     private boolean mAllowDecoderFallback = true;
     private int mLastReportProgress = -1;
-    private FileInputStream mFileInputStream;  // 用于 FileDescriptor 方式，保持 FD 存活
+    private FileInputStream mFileInputStream;
 
     private final DanmakuManager.PlayControl mPlayControl = new DanmakuManager.PlayControl() {
         public boolean isPlaying() { return isPlaying; }
@@ -155,6 +149,7 @@ public class BiliPlayerActivity extends Activity implements
             if (mediaPlayer != null && isPrepared) { mediaPlayer.start(); isPlaying = true; updatePlayPauseButton(); }
         }
     };
+
     private boolean optionsMenuInflated = false;
     private boolean aspectRatioFixed = false;
 
@@ -163,7 +158,6 @@ public class BiliPlayerActivity extends Activity implements
     private int videoHeight = 0;
     private int currentAspectRatio = ASPECT_RATIO_ADJUST_CONTENT;
 
-    // Completion action
     private int completionAction = COMPLETION_ACTION_PAUSE;
     private boolean enableGesture = true;
     private boolean keepBackground;
@@ -185,33 +179,11 @@ public class BiliPlayerActivity extends Activity implements
 
     private ViewStub danmakuInputStub;
 
-    // Panels (PopupWindow)
     private PopupWindow mPlayerOptionsPannel;
 
-    // Gesture
-    private GestureDetector mGestureScanner;
-    private View mGestureView;
-    private View mTouchingView;
-    private ViewGroup mBrightnessBar;
-    private ViewGroup mVolumeBar;
-    private ProgressBar mBrightnessLevel;
-    private ProgressBar mVolumeLevel;
-    private int mBrightnessLevelStart;
-    private int mLastBrightnessLevel = -1;
-    private int mVolumeStart;
-    private boolean mInGestureSeekingMode;
-    private boolean mInHorizontalMoving;
-    private boolean mInVerticalMoving;
-    private int mSeekBarStartProgress;
-    private int mSeekbarProgress;
-    private int mSeekBeginPosition;
-    private int mMaxSeekableValue = -1;
-    private int mGestureWidth;
-    private int mGestureHeight;
+    private int mHardwareDecodeRetryCount = 0;
+    private static final int MAX_HARDWARE_RETRY = 5;
     private boolean mIsDragging;
-
-    private PlayerToastMessageViewHolder mToastViewHolder;
-    private String mProgreesFmt;
 
     private PlayerQualityManager mQualityManager;
     private String[] mQualityNames;
@@ -219,13 +191,6 @@ public class BiliPlayerActivity extends Activity implements
     private int mCurrentQn;
     private boolean mOfflineMode;
     private int mQualitySwitchSeekPos = 0;
-
-    private Runnable mHideBarsRunnable = new Runnable() {
-        public void run() {
-            if (mBrightnessBar != null) mBrightnessBar.setVisibility(View.GONE);
-            if (mVolumeBar != null) mVolumeBar.setVisibility(View.GONE);
-        }
-    };
 
     private Handler handler = new Handler(new Handler.Callback() {
         public boolean handleMessage(Message msg) {
@@ -244,6 +209,9 @@ public class BiliPlayerActivity extends Activity implements
         }
     });
 
+    // 手势控制器
+    private GestureController mGestureController;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -261,21 +229,13 @@ public class BiliPlayerActivity extends Activity implements
         boolean onlineMode = getIntent().getBooleanExtra("online_mode", false);
         decoderType = SettingsActivity.getDecoderType();
 
-        android.util.Log.e("BiliPlayer", "videoUrl: " + videoUrl);
-        android.util.Log.e("BiliPlayer", "videoTitle: " + videoTitle);
-        android.util.Log.e("BiliPlayer", "cachePath: " + cachePath);
-        android.util.Log.e("BiliPlayer", "onlineMode: " + onlineMode);
-
         mAid = getIntent().getLongExtra("aid", 0);
         mCid = getIntent().getLongExtra("cid", 0);
-        android.util.Log.e("BiliPlayer", "aid: " + mAid + ", cid: " + mCid);
 
         mQualityNames = getIntent().getStringArrayExtra("qn_str_array");
         mQualityValues = getIntent().getIntArrayExtra("qn_value_array");
         mCurrentQn = getIntent().getIntExtra("current_qn", 0);
         mOfflineMode = getIntent().getBooleanExtra("offline_mode", false);
-        android.util.Log.e("BiliPlayer", "qualityNames: " + (mQualityNames != null ? mQualityNames.length : 0)
-                + ", currentQn: " + mCurrentQn + ", offlineMode: " + mOfflineMode);
 
         if (onlineMode) {
             if (videoUrl == null || videoUrl.length() == 0) {
@@ -288,7 +248,6 @@ public class BiliPlayerActivity extends Activity implements
                 File cacheFile = new File(cachePath);
                 if (cacheFile.exists()) {
                     videoUrl = cachePath;
-                    android.util.Log.e("BiliPlayer", "使用缓存文件: " + videoUrl);
                 }
             }
         }
@@ -302,7 +261,40 @@ public class BiliPlayerActivity extends Activity implements
 
         initViews();
         initPlayer();
-        initToastView();
+        initGestureController();
+    }
+
+    private void initGestureController() {
+        View rootView = findViewById(android.R.id.content);
+        mGestureController = new GestureController(this, handler, rootView,
+                new GestureController.OnGestureActionListener() {
+                    public void onToggleControls() {
+                        toggleControls();
+                    }
+
+                    public void onTogglePlayPause() {
+                        togglePlayPause();
+                    }
+
+                    public void onSeekTo(long position) {
+                        if (mediaPlayer != null && isPrepared && mDuration > 0) {
+                            mediaPlayer.seekTo(position);
+                            if (mDanmakuManager != null) mDanmakuManager.seekTo(position);
+                            if (tvCurrentTime != null) {
+                                tvCurrentTime.setText(formatTime((int) position));
+                            }
+                        }
+                    }
+
+                    public void onShowToast(String text) {
+                        Toast.makeText(BiliPlayerActivity.this, text, Toast.LENGTH_SHORT).show();
+                    }
+
+                    public void onHideToast() {
+                        // 不需要处理
+                    }
+                });
+        mGestureController.setLiveStream(isLiveStream);
     }
 
     private void initViews() {
@@ -314,22 +306,6 @@ public class BiliPlayerActivity extends Activity implements
 
         bufferingGroup = (LinearLayout) findViewById(R.id.buffering_group);
         bufferingView = (ProgressBar) findViewById(R.id.buffering_view);
-
-        // Gesture view
-        mGestureView = findViewById(R.id.controller_underlay);
-
-        // Brightness/Volume bars
-        View barsGroup = findViewById(R.id.vertically_bars_group);
-        if (barsGroup != null) {
-            mBrightnessBar = (ViewGroup) barsGroup.findViewById(R.id.brightness_bar);
-            mVolumeBar = (ViewGroup) barsGroup.findViewById(R.id.volume_bar);
-            if (mBrightnessBar != null) {
-                mBrightnessLevel = (ProgressBar) mBrightnessBar.findViewById(R.id.brightness_level);
-            }
-            if (mVolumeBar != null) {
-                mVolumeLevel = (ProgressBar) mVolumeBar.findViewById(R.id.volume_level);
-            }
-        }
 
         View controllerView = findViewById(R.id.controller_view);
         if (controllerView != null) {
@@ -360,9 +336,6 @@ public class BiliPlayerActivity extends Activity implements
             optionsMenuBtn = controllerView.findViewById(R.id.options_menu);
             optionsMenuStub = (ViewStub) controllerView.findViewById(R.id.options_menu_items_stub);
         }
-
-        bufferingGroup = (LinearLayout) findViewById(R.id.buffering_group);
-        bufferingView = (ProgressBar) findViewById(R.id.buffering_view);
 
         if (videoTitle != null && tvTitle != null) {
             tvTitle.setText(videoTitle);
@@ -490,42 +463,25 @@ public class BiliPlayerActivity extends Activity implements
             });
         }
 
-        // Gesture setup
-        if (mGestureView != null) {
-            mGestureView.postDelayed(new Runnable() {
-                public void run() {
-                    setupGestureDetector();
-                }
-            }, 300L);
-        }
-
         // 初始化弹幕管理器
         FrameLayout danmakuContainer = (FrameLayout) findViewById(R.id.danmaku_view);
         if (danmakuContainer != null) {
             mDanmakuManager = new DanmakuManager(this, danmakuContainer, mAid, mCid,
                     danmakuInputStub);
 
-            // 离线弹幕支持：如果提供了离线弹幕缓存路径，优先使用
             String danmakuCachePath = getIntent().getStringExtra("danmaku_cache_path");
             if (danmakuCachePath != null && danmakuCachePath.length() > 0) {
                 File danmakuFile = new File(danmakuCachePath);
                 if (danmakuFile.exists() && danmakuFile.length() > 0) {
                     mDanmakuManager.setOfflineDanmakuFile(danmakuFile);
-                    android.util.Log.e("BiliPlayer", "使用离线弹幕文件: " + danmakuCachePath);
                 }
             }
 
             mDanmakuManager.init();
-            android.util.Log.e("BiliPlayer", "DanmakuManager 已初始化");
         }
 
         showControlsWithAutoHide();
         initQualityManager();
-    }
-
-    private void initToastView() {
-        mToastViewHolder = new PlayerToastMessageViewHolder();
-        mProgreesFmt = getString(R.string.PlayerController_toast_message_play_progress_fmt);
     }
 
     private void initQualityManager() {
@@ -591,7 +547,6 @@ public class BiliPlayerActivity extends Activity implements
                                     if (newQnVals != null) {
                                         intent.putExtra("qn_value_array", newQnVals);
                                     }
-                                    // 禁用转场动画
                                     overridePendingTransition(0, 0);
                                     finish();
                                     startActivity(intent);
@@ -644,7 +599,6 @@ public class BiliPlayerActivity extends Activity implements
             surfaceHolder = videoView.getHolder();
             surfaceHolder.addCallback(BiliPlayerActivity.this);
             parent.addView(videoView, 0);
-            android.util.Log.e("BiliPlayer", "QualitySwitch: SurfaceView 已重新创建");
         }
 
         surfaceReady = false;
@@ -671,288 +625,6 @@ public class BiliPlayerActivity extends Activity implements
         }, 300);
     }
 
-    private void setupGestureDetector() {
-        if (mGestureView == null) return;
-        int viewWidth = mGestureView.getWidth();
-        int viewHeight = mGestureView.getHeight();
-        if (viewWidth <= 0 || viewHeight <= 0) {
-            if (videoView != null) {
-                viewWidth = videoView.getWidth();
-                viewHeight = videoView.getHeight();
-            }
-        }
-        if (viewWidth <= 0 || viewHeight <= 0) {
-            DisplayMetrics dm = getResources().getDisplayMetrics();
-            viewWidth = Math.max(dm.widthPixels, dm.heightPixels);
-            viewHeight = Math.min(dm.widthPixels, dm.heightPixels);
-        }
-        mGestureWidth = viewWidth;
-        mGestureHeight = viewHeight;
-
-        mBrightnessLevelStart = 0;
-        if (mBrightnessLevel != null) {
-            mBrightnessLevelStart = 15;
-        }
-
-        mGestureScanner = new GestureDetector(getApplicationContext(), mGestureListener);
-        mGestureView.setOnTouchListener(new View.OnTouchListener() {
-            public boolean onTouch(View v, MotionEvent event) {
-                mTouchingView = v;
-                if (mGestureScanner != null) {
-                    return mGestureScanner.onTouchEvent(event);
-                }
-                return false;
-            }
-        });
-
-        View preloadingView = findViewById(R.id.preloading_view);
-        if (preloadingView != null) {
-            preloadingView.setOnTouchListener(new View.OnTouchListener() {
-                public boolean onTouch(View v, MotionEvent event) {
-                    mTouchingView = v;
-                    if (mGestureScanner != null) {
-                        return mGestureScanner.onTouchEvent(event);
-                    }
-                    return false;
-                }
-            });
-        }
-    }
-
-    // ---- GestureListener ----
-
-    private GestureDetector.SimpleOnGestureListener mGestureListener = new GestureDetector.SimpleOnGestureListener() {
-        private Runnable mHideUIRunnable = new Runnable() {
-            public void run() {
-                if (mBrightnessBar != null) mBrightnessBar.setVisibility(View.GONE);
-                if (mVolumeBar != null) mVolumeBar.setVisibility(View.GONE);
-            }
-        };
-
-        public boolean onDown(MotionEvent e) {
-            updateCurrentPositionForGesture();
-            hideBarControllers(0);
-            startBrightnessChange();
-            startVolumeChange();
-            return true;
-        }
-
-        public boolean onSingleTapConfirmed(MotionEvent e) {
-            if (mInGestureSeekingMode || mInHorizontalMoving || mInVerticalMoving) {
-                return false;
-            }
-            toggleControls();
-            return true;
-        }
-
-        public boolean onDoubleTap(MotionEvent e) {
-            togglePlayPause();
-            if (isPlaying) {
-                showToastMessage(getString(R.string.PlayerController_toast_message_play));
-            } else {
-                showToastMessage(getString(R.string.PlayerController_toast_message_pause));
-            }
-            return true;
-        }
-
-        public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-            if (e1 == null || e2 == null) return false;
-            if (!enableGesture) return false;
-
-            float startX = e1.getX();
-            if (startX < mGestureWidth * 0.01f || startX > mGestureWidth * 0.95f) return true;
-            float startY = e1.getY();
-            if (startY < mGestureHeight * 0.1f || startY > mGestureHeight * 0.95f) return true;
-
-            float moveDelta = Math.abs(distanceY) - Math.abs(distanceX);
-            if (moveDelta > 0f) {
-                onVerticalMove(e1, e2, distanceX, distanceY);
-            } else if (moveDelta < 0f && !isLiveStream) {
-                onHorizontalMove(e1, e2, distanceX, distanceY);
-            }
-            return true;
-        }
-
-        private void onHorizontalMove(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-            if (mInVerticalMoving || seekBar == null) return;
-            float deltaFactorX = (e1.getX() - e2.getX()) / (float) mGestureWidth;
-            if (Math.abs(deltaFactorX) >= 0.02f || mInGestureSeekingMode) {
-                if (!mInGestureSeekingMode) {
-                    mInGestureSeekingMode = true;
-                    mSeekBarStartProgress = seekBar.getProgress();
-                }
-                int maxSeekable = getMaxSeekableValue();
-                mSeekbarProgress = (int) (mSeekBarStartProgress - (maxSeekable * deltaFactorX));
-                mSeekbarProgress = Math.min(Math.max(mSeekbarProgress, 0), seekBar.getMax());
-                seekBar.setProgress(mSeekbarProgress);
-                if (mediaPlayer != null && isPrepared && mDuration > 0) {
-                    long newPosition = ((long) mSeekbarProgress) * mDuration / 1000;
-                    if (tvCurrentTime != null) {
-                        tvCurrentTime.setText(formatTime((int) newPosition));
-                    }
-                }
-                showSeekProgressHint(mSeekbarProgress);
-                if (!mInHorizontalMoving) mInHorizontalMoving = true;
-            }
-        }
-
-        private void onVerticalMove(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-            if (mInHorizontalMoving) return;
-            float startX1 = e1.getX();
-            float startX2 = e2.getX();
-            float left = mGestureWidth / 3f;
-            float right = left * 2f;
-            float deltaFactorY = (e1.getY() - e2.getY()) / (float) mGestureHeight;
-
-            if (startX1 < left && startX2 < left) {
-                changeBrightness(deltaFactorY);
-                if (!mInVerticalMoving) mInVerticalMoving = true;
-            } else if (startX1 > right && startX2 > right) {
-                changeVolume(deltaFactorY);
-                if (!mInVerticalMoving) mInVerticalMoving = true;
-            }
-        }
-
-        private void hideBarControllers(int delay) {
-            handler.removeCallbacks(mHideUIRunnable);
-            handler.postDelayed(mHideUIRunnable, delay);
-        }
-    };
-
-    private void handleGestureUp() {
-        if ((mBrightnessBar != null && mBrightnessBar.isShown()) ||
-                (mVolumeBar != null && mVolumeBar.isShown())) {
-            handler.removeCallbacks(mHideBarsRunnable);
-            handler.postDelayed(mHideBarsRunnable, 1000);
-        }
-
-        if (mInGestureSeekingMode) {
-            mInGestureSeekingMode = false;
-            if (mediaPlayer != null && isPrepared && mDuration > 0) {
-                long finalPosition = ((long) mSeekbarProgress) * mDuration / 1000;
-                mediaPlayer.seekTo(finalPosition);
-                if (mDanmakuManager != null) mDanmakuManager.seekTo(finalPosition);
-                if (tvCurrentTime != null) {
-                    tvCurrentTime.setText(formatTime((int) finalPosition));
-                }
-            }
-        }
-        mInHorizontalMoving = false;
-        mInVerticalMoving = false;
-        hideToastHint();
-    }
-
-    private void updateCurrentPositionForGesture() {
-        if (mediaPlayer != null && isPrepared) {
-            updateTimeDisplay();
-            try {
-                if (mDuration > 0) {
-                    mSeekBeginPosition = (int) (1000L * mediaPlayer.getCurrentPosition() / mDuration);
-                } else {
-                    mSeekBeginPosition = seekBar != null ? seekBar.getProgress() : 0;
-                }
-            } catch (Exception e) {
-                mSeekBeginPosition = seekBar != null ? seekBar.getProgress() : 0;
-            }
-        }
-    }
-
-    private int getMaxSeekableValue() {
-        if (mDuration <= 0) return 0;
-        if (mMaxSeekableValue != -1) return mMaxSeekableValue;
-        float p = 90000.0f / mDuration;
-        if (p > 1.0f) p = 1.0f;
-        mMaxSeekableValue = (int) (1000.0f * p);
-        return mMaxSeekableValue;
-    }
-
-    private void startBrightnessChange() {
-        if (mLastBrightnessLevel >= 0) {
-            mBrightnessLevelStart = mLastBrightnessLevel;
-        } else {
-            mBrightnessLevelStart = 0;
-            try {
-                float b = BrightnessHelper.getScreenBrightness(this);
-                if (b >= 0) mBrightnessLevelStart = (int) Math.floor(b * 15f);
-                if (mBrightnessLevelStart < 1) {
-                    mBrightnessLevelStart = 1;
-                }
-            } catch (Exception e) {
-                mBrightnessLevelStart = 15;
-            }
-        }
-    }
-
-    private void startVolumeChange() {
-        mVolumeStart = AudioManagerHelper.getStreamVolume(this, AudioManager.STREAM_MUSIC);
-    }
-
-    private void changeBrightness(float deltaFactorY) {
-        int max = 15;
-        int newLevel = (int) Math.floor(mBrightnessLevelStart + (0.8f * deltaFactorY * max));
-        newLevel = Math.min(Math.max(newLevel, 0), max);
-        float brightness = newLevel / (float) max;
-        BrightnessHelper.setBrightness(this, brightness);
-        mLastBrightnessLevel = newLevel;
-        if (mBrightnessBar != null) {
-            mBrightnessBar.setVisibility(View.VISIBLE);
-        }
-        if (mBrightnessLevel != null) {
-            mBrightnessLevel.setMax(max);
-            mBrightnessLevel.setProgress(newLevel);
-        }
-    }
-
-    private void changeVolume(float deltaFactorY) {
-        int max = AudioManagerHelper.getStreamMaxVolume(this, AudioManager.STREAM_MUSIC);
-        int newVol = (int) Math.floor(mVolumeStart + (1.5f * deltaFactorY * max));
-        newVol = Math.min(Math.max(newVol, 0), max);
-        AudioManagerHelper.setStreamVolume(this, AudioManager.STREAM_MUSIC, newVol, 0);
-        if (mVolumeBar != null) {
-            mVolumeBar.setVisibility(View.VISIBLE);
-        }
-        if (mVolumeLevel != null) {
-            mVolumeLevel.setMax(max);
-            mVolumeLevel.setProgress(newVol);
-        }
-    }
-
-    private void showSeekProgressHint(int progress) {
-        if (mToastViewHolder == null) return;
-        FrameLayout rootView = (FrameLayout) findViewById(android.R.id.content);
-        if (rootView == null) return;
-        mToastViewHolder.initView(this, rootView);
-
-        if (mProgreesFmt == null) {
-            mProgreesFmt = getString(R.string.PlayerController_toast_message_play_progress_fmt);
-        }
-
-        int progressMs = (int)(((long) progress) * mDuration / 1000);
-        int beginMs = (int)(((long) mSeekBeginPosition) * mDuration / 1000);
-        String timeText = formatTime(progressMs);
-        String durationText = formatTime(mDuration);
-
-        long diff = (progressMs - beginMs) / 1000;
-        String diffTime = (diff >= 0 ? "+" : "") + diff;
-
-        String text = String.format(mProgreesFmt, timeText, durationText, diffTime);
-        mToastViewHolder.show(text, 500000, false);
-    }
-
-    private void showToastMessage(String text) {
-        if (mToastViewHolder == null) return;
-        FrameLayout rootView = (FrameLayout) findViewById(android.R.id.content);
-        if (rootView == null) return;
-        mToastViewHolder.initView(this, rootView);
-        mToastViewHolder.show(text, 1000, false);
-    }
-
-    private void hideToastHint() {
-        if (mToastViewHolder != null) {
-            mToastViewHolder.dismiss();
-        }
-    }
-
     private void initPlayer() {
         showBuffering(true);
 
@@ -966,11 +638,10 @@ public class BiliPlayerActivity extends Activity implements
     private void preparePlayer() {
         releasePlayer();
 
+        mHardwareDecodeRetryCount = 0;
         mAllowDecoderFallback = true;
 
         boolean isNetworkUrl = videoUrl != null && videoUrl.startsWith("http");
-        android.util.Log.e("BiliPlayer", "preparePlayer: decoderType=" + decoderType + ", isNetworkUrl=" + isNetworkUrl);
-        android.util.Log.e("BiliPlayer", "videoUrl=" + videoUrl);
 
         String actualUrl = videoUrl;
         if (isNetworkUrl) {
@@ -978,19 +649,15 @@ public class BiliPlayerActivity extends Activity implements
             localProxy = new LocalStreamProxy(videoUrl, proxyHeaders);
             try {
                 actualUrl = localProxy.start();
-                android.util.Log.e("Skyler1nADD", "本地中转代理URL: " + actualUrl);
             } catch (IOException e) {
-                android.util.Log.e("Skyler1nADD", "代理启动失败: " + e.getMessage());
                 actualUrl = videoUrl;
             }
         }
 
         if (decoderType == DECODER_IJK) {
-            android.util.Log.e("BiliPlayer", "使用 IjkMediaPlayer");
             IjkMediaPlayer ijkPlayer = new IjkMediaPlayer();
             mediaPlayer = ijkPlayer;
 
-            // IJK 选项
             ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 0L);
             ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles",
                     DecoderSettingsActivity.isOpenSLESEnabled() ? 1L : 0L);
@@ -1033,43 +700,32 @@ public class BiliPlayerActivity extends Activity implements
                     String cookie = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
                     if (cookie != null && cookie.length() > 0) {
                         headers.put("Cookie", cookie);
-                        android.util.Log.e("BiliPlayer", "Cookie: " + cookie);
-                    } else {
-                        android.util.Log.e("BiliPlayer", "Cookie 为空");
                     }
-                    android.util.Log.e("BiliPlayer", "IJK 网络播放，setDataSource 带 headers");
                     ijkPlayer.setDataSource(actualUrl, headers);
                 } else {
                     if (cachePath != null && new File(cachePath).exists()) {
-                        android.util.Log.e("BiliPlayer", "使用缓存文件: " + cachePath);
                         ijkPlayer.setDataSource(cachePath);
                     } else if (videoUrl != null && new File(videoUrl).exists()) {
-                        android.util.Log.e("BiliPlayer", "使用本地文件: " + videoUrl);
                         ijkPlayer.setDataSource(videoUrl);
                     } else {
-                        android.util.Log.e("BiliPlayer", "无效的本地源");
                         Toast.makeText(this, "无视频源", Toast.LENGTH_SHORT).show();
                         finish();
                         return;
                     }
                 }
             } catch (IOException e) {
-                android.util.Log.e("BiliPlayer", "setDataSource IOException: " + e.getMessage());
-                e.printStackTrace();
                 Toast.makeText(this, "设置数据源失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 finish();
                 return;
             }
 
         } else {
-            // ===== 系统解码器 (AndroidMediaPlayer) =====
-            android.util.Log.e("BiliPlayer", "使用 AndroidMediaPlayer");
+            // 系统解码器
             AndroidMediaPlayer androidPlayer = new AndroidMediaPlayer();
             mediaPlayer = androidPlayer;
 
             try {
                 if (isNetworkUrl) {
-                    android.util.Log.e("BiliPlayer", "系统播放器网络播放: " + actualUrl);
                     androidPlayer.setDataSource(this, Uri.parse(actualUrl));
                 } else {
                     String localPath = null;
@@ -1080,42 +736,30 @@ public class BiliPlayerActivity extends Activity implements
                     }
 
                     if (localPath != null) {
-                        // ========== 优先用 FileDescriptor ==========
                         try {
                             mFileInputStream = new FileInputStream(localPath);
                             androidPlayer.setDataSource(mFileInputStream.getFD());
-                            android.util.Log.e("BiliPlayer", "系统播放器使用 FileDescriptor");
                         } catch (Exception e) {
-                            android.util.Log.e("BiliPlayer", "FileDescriptor 失败: " + e.getMessage());
-                            // 回退到 Uri
                             try {
                                 Uri localUri = Uri.fromFile(new File(localPath));
                                 androidPlayer.setDataSource(this, localUri);
-                                android.util.Log.e("BiliPlayer", "回退到 Uri: " + localUri.toString());
                             } catch (Exception e2) {
-                                android.util.Log.e("BiliPlayer", "Uri 也失败: " + e2.getMessage());
-                                // 最后回退到路径
                                 androidPlayer.setDataSource(localPath);
-                                android.util.Log.e("BiliPlayer", "回退到路径方式: " + localPath);
                             }
                         }
                     } else {
-                        android.util.Log.e("BiliPlayer", "系统播放器无效的本地源");
                         Toast.makeText(this, "无视频源", Toast.LENGTH_SHORT).show();
                         finish();
                         return;
                     }
                 }
             } catch (Exception e) {
-                android.util.Log.e("BiliPlayer", "系统播放器 setDataSource 异常: " + e.getMessage());
-                e.printStackTrace();
                 Toast.makeText(this, "设置数据源失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 finish();
                 return;
             }
         }
 
-        // 公共设置
         mediaPlayer.setOnPreparedListener(this);
         mediaPlayer.setOnCompletionListener(this);
         mediaPlayer.setOnSeekCompleteListener(this);
@@ -1126,21 +770,12 @@ public class BiliPlayerActivity extends Activity implements
         if (surfaceHolder != null) {
             try {
                 mediaPlayer.setDisplay(surfaceHolder);
-                android.util.Log.e("BiliPlayer", "setDisplay 成功");
-            } catch (Exception e) {
-                android.util.Log.e("BiliPlayer", "setDisplay 失败: " + e.getMessage());
-                e.printStackTrace();
-            }
-        } else {
-            android.util.Log.e("BiliPlayer", "surfaceHolder 为空");
+            } catch (Exception e) {}
         }
 
         try {
             mediaPlayer.prepareAsync();
-            android.util.Log.e("BiliPlayer", "prepareAsync 已调用");
         } catch (Exception e) {
-            android.util.Log.e("BiliPlayer", "prepareAsync 失败: " + e.getMessage());
-            e.printStackTrace();
             Toast.makeText(this, "准备播放失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
             finish();
         }
@@ -1159,16 +794,12 @@ public class BiliPlayerActivity extends Activity implements
             if (isPrepared && videoWidth > 0 && videoHeight > 0) {
                 holder.setFixedSize(videoWidth, videoHeight);
             }
-            // ========== 强制重新设置 Display ==========
             try {
                 mediaPlayer.setDisplay(holder);
-                android.util.Log.e("BiliPlayer", "surfaceCreated: 重新设置 Display");
                 if (isPrepared && isPlaying) {
                     mediaPlayer.start();
                 }
-            } catch (Exception e) {
-                android.util.Log.e("BiliPlayer", "surfaceCreated setDisplay 失败: " + e.getMessage());
-            }
+            } catch (Exception e) {}
         }
     }
 
@@ -1177,8 +808,7 @@ public class BiliPlayerActivity extends Activity implements
         if (mediaPlayer != null) {
             try {
                 mediaPlayer.setDisplay(holder);
-            } catch (Exception e) {
-            }
+            } catch (Exception e) {}
         }
     }
 
@@ -1189,8 +819,7 @@ public class BiliPlayerActivity extends Activity implements
             if (isPrepared) {
                 try {
                     mSeekWhenPrepared = (int) mediaPlayer.getCurrentPosition();
-                } catch (Exception e) {
-                }
+                } catch (Exception e) {}
             }
         }
     }
@@ -1203,10 +832,7 @@ public class BiliPlayerActivity extends Activity implements
         if (surfaceHolder != null) {
             try {
                 mediaPlayer.setDisplay(surfaceHolder);
-                android.util.Log.e("BiliPlayer", "onPrepared: 重新绑定 Display");
-            } catch (Exception e) {
-                android.util.Log.e("BiliPlayer", "onPrepared setDisplay 失败: " + e.getMessage());
-            }
+            } catch (Exception e) {}
         }
 
         mDuration = (int) mp.getDuration();
@@ -1216,6 +842,11 @@ public class BiliPlayerActivity extends Activity implements
         }
         if (tvTotalTime != null) {
             tvTotalTime.setText(formatTime(mDuration));
+        }
+
+        // 更新手势控制器
+        if (mGestureController != null) {
+            mGestureController.setDuration(mDuration);
         }
 
         adjustVideoSize();
@@ -1313,30 +944,39 @@ public class BiliPlayerActivity extends Activity implements
     @Override
     public boolean onError(IMediaPlayer mp, int what, int extra) {
         showBuffering(false);
-        android.util.Log.e("BiliPlayer", "onError: what=" + what + ", extra=" + extra + ", decoder=" + decoderType);
-
-        boolean isMSM7x27 = isMSM7x27Device();
-
-        if (isMSM7x27 && decoderType == DECODER_SYSTEM && mAllowDecoderFallback) {
-            mAllowDecoderFallback = false;
-            decoderType = DECODER_IJK;
-            android.util.Log.e("Skyler1nADD", "MSM7x27 设备，自动切换到软解");
-            Toast.makeText(this, "该设备不支持硬解，已自动切换到软解模式", Toast.LENGTH_LONG).show();
-            cleanupAndRestart();
-            return true;
-        }
 
         if (decoderType == DECODER_SYSTEM && mAllowDecoderFallback) {
+            // 第一次硬解失败 → 直接降级软解
+            if (!isPrepared) {
+                mAllowDecoderFallback = false;
+                decoderType = DECODER_IJK;
+                mHardwareDecodeRetryCount = 0;
+                Toast.makeText(this, "硬解失败，已自动切换到软解模式", Toast.LENGTH_LONG).show();
+                cleanupAndRestart();
+                return true;
+            }
+
+            // 已成功播放过，偶发错误 → 重试 5 次
+            if (mHardwareDecodeRetryCount < MAX_HARDWARE_RETRY) {
+                mHardwareDecodeRetryCount++;
+                handler.postDelayed(new Runnable() {
+                    public void run() {
+                        cleanupAndRestart();
+                    }
+                }, 500);
+                return true;
+            }
+
+            // 重试 5 次仍失败 → 降级软解
             mAllowDecoderFallback = false;
             decoderType = DECODER_IJK;
-            android.util.Log.e("Skyler1nADD", "硬解失败，降级到 IJK 软解");
+            mHardwareDecodeRetryCount = 0;
             Toast.makeText(this, "硬解失败，已自动切换到软解模式", Toast.LENGTH_LONG).show();
             cleanupAndRestart();
             return true;
         }
 
         if (decoderType == DECODER_IJK || !mAllowDecoderFallback) {
-            android.util.Log.e("Skyler1nADD", "播放失败");
             Toast.makeText(this, "播放失败，请检查网络或重试", Toast.LENGTH_LONG).show();
             finish();
             return true;
@@ -1346,67 +986,48 @@ public class BiliPlayerActivity extends Activity implements
         return true;
     }
 
-    // 检测 MSM7x27 系列设备
-    private boolean isMSM7x27Device() {
-        try {
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(
-                            new java.io.FileInputStream("/proc/cpuinfo")
-                    )
-            );
-            String line;
-            boolean isARMv6 = false;
-            boolean hasNeon = false;
-            String hardware = "";
+    private void cleanupAndRestart() {
+        mHardwareDecodeRetryCount = 0;
 
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.startsWith("CPU architecture")) {
-                    String[] parts = line.split(":", 2);
-                    if (parts.length == 2) {
-                        String arch = parts[1].trim();
-                        if (arch.startsWith("6")) {
-                            isARMv6 = true;
-                        }
-                    }
-                }
-                if (line.startsWith("Features")) {
-                    String[] parts = line.split(":", 2);
-                    if (parts.length == 2) {
-                        String features = parts[1].trim();
-                        if (features.indexOf("neon") != -1) {
-                            hasNeon = true;
-                        }
-                    }
-                }
-                if (line.startsWith("Hardware")) {
-                    String[] parts = line.split(":", 2);
-                    if (parts.length == 2) {
-                        hardware = parts[1].trim();
-                    }
-                }
-            }
-            reader.close();
-
-            if (hardware != null && hardware.length() > 0) {
-                if (hardware.indexOf("7x27") != -1 || hardware.indexOf("7227") != -1 ||
-                        hardware.indexOf("7627") != -1 || hardware.indexOf("MSM7x27") != -1) {
-                    android.util.Log.e("BiliPlayer", "检测到 MSM7x27 设备: " + hardware);
-                    return true;
-                }
-            }
-            if (isARMv6) {
-                android.util.Log.e("BiliPlayer", "检测到 ARMv6 设备");
-                return true;
-            }
-            if (!hasNeon) {
-                android.util.Log.e("BiliPlayer", "设备不支持 NEON");
-                return true;
-            }
-        } catch (Exception e) {
-            android.util.Log.e("BiliPlayer", "检测 CPU 失败: " + e.getMessage());
+        if (localProxy != null) {
+            localProxy.stop();
+            localProxy = null;
         }
-        return false;
+
+        if (mDanmakuManager != null) {
+            mDanmakuManager.pause();
+            mDanmakuManager.release();
+        }
+
+        releasePlayer();
+
+        final FrameLayout parent = (FrameLayout) videoView.getParent();
+        if (parent != null) {
+            parent.removeView(videoView);
+            videoView = new SurfaceView(this);
+            videoView.setKeepScreenOn(true);
+            surfaceHolder = videoView.getHolder();
+            surfaceHolder.addCallback(BiliPlayerActivity.this);
+            parent.addView(videoView, 0);
+        }
+
+        surfaceReady = false;
+        pendingPrepare = false;
+
+        handler.postDelayed(new Runnable() {
+            public void run() {
+                if (mDanmakuManager != null) {
+                    mDanmakuManager.init();
+                }
+
+                if (surfaceHolder != null) {
+                    surfaceReady = true;
+                    preparePlayer();
+                } else {
+                    pendingPrepare = true;
+                }
+            }
+        }, 300);
     }
 
     @Override
@@ -1593,7 +1214,7 @@ public class BiliPlayerActivity extends Activity implements
         optionsMenuInflated = true;
     }
 
-    // ---- Player Options Pannel (播放设置) ----
+    // ---- Player Options Pannel ----
 
     private void showPlayerOptionsPannel() {
         if (mPlayerOptionsPannel != null && mPlayerOptionsPannel.isShowing()) {
@@ -1625,7 +1246,6 @@ public class BiliPlayerActivity extends Activity implements
                 R.id.player_options_keep_background);
         View screenOrientation = panel.findViewById(R.id.player_options_screen_orientation);
 
-        // Set current values
         RadioGridGroup completionGroup = (RadioGridGroup) panel.findViewById(
                 R.id.player_options_completion_actions);
         if (completionGroup != null) {
@@ -1660,6 +1280,9 @@ public class BiliPlayerActivity extends Activity implements
             enableGestureCb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     enableGesture = isChecked;
+                    if (mGestureController != null) {
+                        mGestureController.setEnableGesture(isChecked);
+                    }
                 }
             });
         }
@@ -1807,11 +1430,6 @@ public class BiliPlayerActivity extends Activity implements
         showControlsWithAutoHide();
     }
 
-    private void showNoFade() {
-        showControls();
-        handler.removeMessages(MSG_HIDE_CONTROLS);
-    }
-
     private void togglePlayPause() {
         if (mediaPlayer == null) return;
 
@@ -1823,8 +1441,7 @@ public class BiliPlayerActivity extends Activity implements
             if (!isPrepared) {
                 try {
                     mediaPlayer.seekTo(0);
-                } catch (Exception e) {
-                }
+                } catch (Exception e) {}
             }
             isPrepared = true;
             mediaPlayer.start();
@@ -1853,35 +1470,44 @@ public class BiliPlayerActivity extends Activity implements
 
     // 上报播放进度
     private void reportHistory(final int progress) {
-        if (mAid == 0 || mCid == 0) {
-            android.util.Log.e("BiliPlayer", "aid或cid为0，跳过上报");
-            return;
-        }
+        if (mAid == 0 || mCid == 0) return;
         if (mLastReportProgress == progress) return;
         mLastReportProgress = progress;
 
-        final int progressSec = progress / 1000;  // 毫秒 → 秒
-        android.util.Log.e("BiliPlayer", "准备上报进度: " + progress + "ms = " + progressSec + "s, aid=" + mAid + ", cid=" + mCid);
+        final int progressSec = progress / 1000;
 
         new Thread(new Runnable() {
             public void run() {
                 try {
                     String url = "https://api.bilibili.com/x/v2/history/report";
                     String cookie = SharedPreferencesUtil.getString("cookies", "");
-                    String csrf = NetWorkUtil.getInfoFromCookie("bili_jct", cookie);
+
+                    String csrf = null;
+                    if (cookie != null && cookie.length() > 0) {
+                        java.util.regex.Pattern p = java.util.regex.Pattern.compile("bili_jct=([a-f0-9]+)");
+                        java.util.regex.Matcher m = p.matcher(cookie);
+                        if (m.find()) {
+                            csrf = m.group(1);
+                        }
+                    }
 
                     if (csrf == null || csrf.length() == 0) {
-                        android.util.Log.e("BiliPlayer", "csrf 为空，跳过上报");
                         return;
                     }
 
-                    String arg = "aid=" + mAid + "&cid=" + mCid + "&progress=" + progressSec + "&csrf=" + csrf;  // ← 这里用 progressSec
-                    NetWorkUtil.setCookieString(cookie);
-                    String result = NetWorkUtil.post(url, arg, NetWorkUtil.webHeaders);
-                    android.util.Log.e("BiliPlayer", "上报结果: " + result);
-                } catch (Exception e) {
-                    android.util.Log.e("BiliPlayer", "上报进度失败: " + e.getMessage());
-                }
+                    java.util.ArrayList headers = new java.util.ArrayList();
+                    headers.add("User-Agent");
+                    headers.add(NetWorkUtil.USER_AGENT_WEB);
+                    headers.add("Referer");
+                    headers.add("https://www.bilibili.com/");
+                    headers.add("Cookie");
+                    headers.add(cookie);
+                    headers.add("Content-Type");
+                    headers.add("application/x-www-form-urlencoded");
+
+                    String arg = "aid=" + mAid + "&cid=" + mCid + "&progress=" + progressSec + "&csrf=" + csrf;
+                    String result = NetWorkUtil.post(url, arg, headers);
+                } catch (Exception e) {}
             }
         }).start();
     }
@@ -1889,7 +1515,7 @@ public class BiliPlayerActivity extends Activity implements
     private void updateTimeDisplay() {
         if (mediaPlayer == null || !isPrepared) return;
 
-        if (mIsDragging || mInGestureSeekingMode) return;
+        if (mIsDragging || (mGestureController != null && mGestureController.isGestureSeeking())) return;
 
         try {
             long current = mediaPlayer.getCurrentPosition();
@@ -1900,13 +1526,11 @@ public class BiliPlayerActivity extends Activity implements
                 tvCurrentTime.setText(formatTime((int) current));
             }
 
-            // ========== 每 5 秒上报一次进度 ==========
             int progress = (int) current;
             if (progress > 0 && progress % 5000 < 250) {
                 reportHistory(progress);
             }
-        } catch (Exception e) {
-        }
+        } catch (Exception e) {}
     }
 
     private void updateDateTime() {
@@ -2012,8 +1636,8 @@ public class BiliPlayerActivity extends Activity implements
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (ev.getAction() == MotionEvent.ACTION_UP) {
-            handleGestureUp();
+        if (mGestureController != null) {
+            mGestureController.onTouchEvent(ev);
         }
         return super.dispatchTouchEvent(ev);
     }
@@ -2053,55 +1677,6 @@ public class BiliPlayerActivity extends Activity implements
             finish();
             startActivity(intent);
         }
-    }
-
-    private void cleanupAndRestart() {
-        if (localProxy != null) {
-            localProxy.stop();
-            localProxy = null;
-        }
-
-        if (mDanmakuManager != null) {
-            mDanmakuManager.pause();
-            mDanmakuManager.release();
-        }
-
-        releasePlayer();
-
-        // 强制重新创建 SurfaceView
-        final FrameLayout parent = (FrameLayout) videoView.getParent();
-        if (parent != null) {
-            // 移除旧的 SurfaceView
-            parent.removeView(videoView);
-            // 创建新的 SurfaceView（旧的 Surface 已经失效）
-            videoView = new SurfaceView(this);
-            videoView.setKeepScreenOn(true);
-            // 重新获取 SurfaceHolder
-            surfaceHolder = videoView.getHolder();
-            surfaceHolder.addCallback(BiliPlayerActivity.this);
-            // 加回布局
-            parent.addView(videoView, 0);
-            android.util.Log.e("BiliPlayer", "SurfaceView 已重新创建");
-        }
-
-        surfaceReady = false;
-        pendingPrepare = false;
-
-        handler.postDelayed(new Runnable() {
-            public void run() {
-                if (mDanmakuManager != null) {
-                    mDanmakuManager.init();
-                    android.util.Log.e("BiliPlayer", "DanmakuManager 已重新初始化");
-                }
-
-                if (surfaceHolder != null) {
-                    surfaceReady = true;
-                    preparePlayer();
-                } else {
-                    pendingPrepare = true;
-                }
-            }
-        }, 300);
     }
 
     @Override
@@ -2150,11 +1725,11 @@ public class BiliPlayerActivity extends Activity implements
             mDanmakuManager.release();
             mDanmakuManager = null;
         }
-        handler.removeCallbacksAndMessages(null);
-        if (mToastViewHolder != null) {
-            mToastViewHolder.release();
-            mToastViewHolder = null;
+        if (mGestureController != null) {
+            mGestureController.release();
+            mGestureController = null;
         }
+        handler.removeCallbacksAndMessages(null);
         if (mQualityManager != null) {
             mQualityManager.release();
             mQualityManager = null;
@@ -2178,13 +1753,10 @@ public class BiliPlayerActivity extends Activity implements
     }
 
     private void releasePlayer(boolean clearState) {
-        // 关闭 FileInputStream（保持 FD 存活用的）
         if (mFileInputStream != null) {
             try {
                 mFileInputStream.close();
-            } catch (Exception e) {
-                // 忽略
-            }
+            } catch (Exception e) {}
             mFileInputStream = null;
         }
 
@@ -2199,16 +1771,13 @@ public class BiliPlayerActivity extends Activity implements
         if (mediaPlayer != null) {
             try {
                 mediaPlayer.setDisplay(null);
-            } catch (Exception e) {
-            }
+            } catch (Exception e) {}
             try {
                 mediaPlayer.reset();
-            } catch (Exception e) {
-            }
+            } catch (Exception e) {}
             try {
                 mediaPlayer.release();
-            } catch (Exception e) {
-            }
+            } catch (Exception e) {}
             mediaPlayer = null;
         }
         if (clearState) {
