@@ -859,6 +859,7 @@ public class OfflineActivity extends BaseActivity {
                 holder.state = (TextView) convertView.findViewById(R.id.state);
                 holder.btnPlay = (ImageView) convertView.findViewById(R.id.btn_play);
                 holder.itemProgress = (ProgressBar) convertView.findViewById(R.id.progress_bar);
+                holder.progressIndeterminate = (ImageView) convertView.findViewById(R.id.progress_indeterminate);
                 convertView.setTag(holder);
             } else {
                 holder = (ViewHolder) convertView.getTag();
@@ -887,11 +888,35 @@ public class OfflineActivity extends BaseActivity {
                 if (holder.itemProgress != null) {
                     if (!item.isCompleted && item.totalBytes > 0) {
                         holder.itemProgress.setVisibility(View.VISIBLE);
+                        holder.itemProgress.setIndeterminate(false);
                         int pct = (int) (item.downloadedBytes * 100 / item.totalBytes);
                         holder.itemProgress.setProgress(pct);
                         holder.state.setText("下载中 " + pct + "%");
+                        if (holder.progressIndeterminate != null) {
+                            holder.progressIndeterminate.setVisibility(View.GONE);
+                        }
+                    } else if (!item.isCompleted && item.totalBytes <= 0) {
+                        holder.itemProgress.setVisibility(View.GONE);
+                        if (holder.progressIndeterminate != null) {
+                            holder.progressIndeterminate.setVisibility(View.VISIBLE);
+                            final ImageView iv = holder.progressIndeterminate;
+                            mainHandler.post(new Runnable() {
+                                public void run() {
+                                    android.graphics.drawable.AnimationDrawable anim =
+                                            (android.graphics.drawable.AnimationDrawable) iv.getDrawable();
+                                    if (anim != null) {
+                                        anim.stop();
+                                        anim.start();
+                                    }
+                                }
+                            });
+                        }
+                        holder.state.setText("准备中...");
                     } else {
                         holder.itemProgress.setVisibility(View.GONE);
+                        if (holder.progressIndeterminate != null) {
+                            holder.progressIndeterminate.setVisibility(View.GONE);
+                        }
                     }
                 }
 
@@ -954,6 +979,7 @@ public class OfflineActivity extends BaseActivity {
         TextView state;
         ImageView btnPlay;
         ProgressBar itemProgress;
+        ImageView progressIndeterminate;
     }
 
     static class OfflineItem {
