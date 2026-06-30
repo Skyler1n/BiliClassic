@@ -114,15 +114,21 @@ public class VideoDownloadManager {
         if (mCurrentTask != null && !mCurrentTask.isCancelled()) {
             mCurrentTask.pause();
             mCurrentTask.entry.state = VideoDownloadEntry.STATE_STOPPED;
+            mCurrentTask.entry.isPaused = true;
+            saveEntry(mCurrentTask.entry);
             mPausedTasks.add(mCurrentTask);
             mCurrentTask = null;
             if (mWorkHandler != null) {
                 mWorkHandler.sendEmptyMessage(MSG_START_NEXT);
             }
         }
+        // 如果队列和当前任务都空了，取消通知
+        if (mCurrentTask == null && mPendingTasks.isEmpty()) {
+            cancelProgressNotification();
+        }
     }
 
-    public void resumePaused(long key) {
+    public boolean resumePaused(long key) {
         VideoDownloadTask found = null;
         for (int i = 0; i < mPausedTasks.size(); i++) {
             VideoDownloadTask t = mPausedTasks.get(i);
@@ -135,11 +141,15 @@ public class VideoDownloadManager {
             mPausedTasks.remove(found);
             found.resume();
             found.entry.state = VideoDownloadEntry.STATE_IN_QUEUE;
+            found.entry.isPaused = false;
+            saveEntry(found.entry);
             mPendingTasks.add(found);
             if (mCurrentTask == null && mWorkHandler != null) {
                 mWorkHandler.sendEmptyMessage(MSG_START_NEXT);
             }
+            return true;
         }
+        return false;
     }
 
     public void resumeCurrent() {
@@ -192,6 +202,7 @@ public class VideoDownloadManager {
         mCurrentTask = mPendingTasks.poll();
         if (mCurrentTask == null) return;
         mCurrentTask.entry.state = VideoDownloadEntry.STATE_DOWNLOADING;
+        showProgressNotification(mCurrentTask.entry);
         executeDownload(mCurrentTask);
     }
 
@@ -219,6 +230,7 @@ public class VideoDownloadManager {
         entry.downloadEnv = env;
 
         entry.isCompleted = false;
+        entry.videoUrl = task.videoUrl;
         env.saveEntry(entry);
 
         if (task.videoUrl == null || task.videoUrl.length() == 0) {
@@ -407,6 +419,34 @@ public class VideoDownloadManager {
                 mNotifHelper.notifyDownloadProgress(entry);
             }
         });
+    }
+
+    private void showProgressNotification(final VideoDownloadEntry entry) {
+        mMainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                mNotifHelper.notifyDownloadProgress(entry);
+            }
+        });
+    }
+
+    private void cancelProgressNotification() {
+        mMainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                mNotifHelper.cancelNotification();
+            }
+        });
+    }
+
+    private void saveEntry(VideoDownloadEntry entry) {
+        try {
+            VideoDownloadEnvironment env = new VideoDownloadEnvironment(
+                    mDownloadDir, entry.avid, entry.page);
+            env.saveEntry(entry);
+        } catch (Exception e) {
+            // ignore
+        }
     }
 
     private void notifyComplete(final VideoDownloadEntry entry) {

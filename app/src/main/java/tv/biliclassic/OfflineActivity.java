@@ -29,7 +29,6 @@ import java.io.FileOutputStream;
 import java.lang.ref.SoftReference;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -66,7 +65,6 @@ public class OfflineActivity extends BaseActivity {
     private Handler mRefreshHandler = new Handler();
     private Runnable mRefreshRunnable;
     private static final int REFRESH_INTERVAL = 2000;
-    private HashSet<Long> mPausedKeys = new HashSet<Long>();
 
     private boolean isLowMemoryDevice() {
         int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
@@ -194,6 +192,14 @@ public class OfflineActivity extends BaseActivity {
 
     // 播放视频
     private void playVideo(OfflineItem item) {
+        // 未下载完的视频 → 进入在线详情页
+        if (!item.isCompleted && item.avid > 0) {
+            Intent intent = new Intent(this, VideoDetailActivity.class);
+            intent.putExtra("aid", item.avid);
+            startActivity(intent);
+            return;
+        }
+
         if (item.videoFile == null || !item.videoFile.exists()) {
             Toast.makeText(this, "视频文件不存在", Toast.LENGTH_SHORT).show();
             refreshList();
@@ -272,9 +278,23 @@ public class OfflineActivity extends BaseActivity {
     // 删除视频
     private void deleteVideo(OfflineItem item) {
         try {
-            boolean deleted = false;
-            if (item.videoFile != null && item.videoFile.exists()) {
-                deleted = item.videoFile.delete();
+            if (item.isCompleted && item.env != null) {
+                // 已完成的新版 → 删整个目录
+                item.env.deleteEntry();
+            } else if (!item.isCompleted) {
+                // 下载中的 → 先取消服务，再删
+                Intent cancelIntent = new Intent(this, VideoDownloadService.class);
+                cancelIntent.setAction(VideoDownloadService.ACTION_CANCEL);
+                startService(cancelIntent);
+                if (item.env != null) {
+                    item.env.deleteEntry();
+                } else if (item.videoFile != null) {
+                    item.videoFile.delete();
+                }
+            } else {
+                if (item.videoFile != null && item.videoFile.exists()) {
+                    item.videoFile.delete();
+                }
             }
             if (item.coverFile != null && item.coverFile.exists()) {
                 item.coverFile.delete();
@@ -288,11 +308,7 @@ public class OfflineActivity extends BaseActivity {
                 }
             }
 
-            if (deleted) {
-                Toast.makeText(this, "已删除: " + item.title, Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "删除失败", Toast.LENGTH_SHORT).show();
-            }
+            Toast.makeText(this, "已删除: " + item.title, Toast.LENGTH_SHORT).show();
             refreshList();
         } catch (Exception e) {
             Toast.makeText(this, "删除失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -466,6 +482,7 @@ public class OfflineActivity extends BaseActivity {
                 item.isCompleted = entry.isCompleted;
                 item.downloadedBytes = entry.downloadedBytes;
                 item.totalBytes = entry.totalBytes;
+                item.isPaused = entry.isPaused;
                 item.avid = entry.avid;
                 item.page = entry.page;
                 if (item.videoFile != null && item.videoFile.exists()) {
@@ -881,7 +898,7 @@ public class OfflineActivity extends BaseActivity {
                 if (holder.btnPlay != null) {
                     if (!item.isCompleted) {
                         final long itemKey = item.getKey();
-                        final boolean isPaused = mPausedKeys.contains(itemKey);
+                        final boolean isPaused = item.isPaused;
                         holder.btnPlay.setVisibility(View.VISIBLE);
                         holder.btnPlay.setImageResource(isPaused
                                 ? android.R.drawable.ic_media_play
@@ -889,15 +906,15 @@ public class OfflineActivity extends BaseActivity {
                         holder.btnPlay.setOnClickListener(new View.OnClickListener() {
                             @Override
                             public void onClick(View v) {
-                                if (mPausedKeys.contains(itemKey)) {
-                                    mPausedKeys.remove(itemKey);
+                                if (item.isPaused) {
+                                    item.isPaused = false;
                                     Intent intent = new Intent(OfflineActivity.this,
                                             VideoDownloadService.class);
                                     intent.setAction(VideoDownloadService.ACTION_RESUME);
                                     intent.putExtra("key", itemKey);
                                     startService(intent);
                                 } else {
-                                    mPausedKeys.add(itemKey);
+                                    item.isPaused = true;
                                     Intent intent = new Intent(OfflineActivity.this,
                                             VideoDownloadService.class);
                                     intent.setAction(VideoDownloadService.ACTION_PAUSE);
@@ -956,6 +973,7 @@ public class OfflineActivity extends BaseActivity {
         List<String> pages;
         List<File> pagesFile;
         int totalPageCount;
+        boolean isPaused;
 
         long getKey() {
             return (avid << 32) | (page & 0xFFFFFFFFL);
