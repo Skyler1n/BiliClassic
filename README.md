@@ -5,6 +5,16 @@
 
 ---
 
+## 本项目是如何出现的？
+
+开发者本人是个怀旧狂，非常喜欢大约2014年左右的B站旧界面
+于是他在使用 Android 2.3 / Android 4.0 手机的时候，就真的很想想让这些手机看上B站
+然而当时能找到的最低适配的B站，也就是隔壁的哔哩终端（hhh）只能支持安卓4.0.4+
+就这样，在等了许久后，连隔壁iOS 5都看上了（！），安卓2还是没有任何能在线看B站的方法，开发者就终于决定自己动手了
+现在嘛，这个梦想终于大约已经实现了23333
+
+---
+
 ## 当前版本
 
 **0.3.4 (稳定版)** —— 无播放器，纯净浏览体验
@@ -16,7 +26,7 @@
 ## 已实现功能
 
 - 轻量适配 Android 1.6+ 设备
-- 完美适配 Android 2.3+ 设备
+- 完美适配 Android 2.3+ 设备（带内置播放器）
 - 扫码登录 / Cookie 登录 / 手动输入 Cookie
 - 视频搜索（支持 AV / BV 号快捷跳转）
 - 播放历史记录
@@ -44,6 +54,23 @@
 
 ---
 
+## 兼容性说明
+
+本项目的目标设备是 2011 年前后的 Android 机型，包括但不限于：
+
+- 小米手机1 (MI-ONE Plus) —— 1999元为发烧而生的迫真手机
+- 三星 Galaxy S2 (i9100) —— 双核猎户座，4.3寸Super AMOLED Plus，年度机皇
+- 魅族 MX (M030) —— 双核1.4GHz，文艺青年专用
+- HTC Sensation (G14) —— 双核1.2GHz，火腿肠的看家旗舰
+- HTC Chacha (G16) —— 全键盘手机，已提供专项适配喵
+- HTC Wildfire (A3333) —— 3.2寸QVGA屏，入门级安卓，便宜够用
+- HTC Hero (G3) —— 翘下巴设计，轨迹球，Android 1.5时代的经典
+
+以及其他搭载 ARMv5TE / ARMv6 / ARMv7-A / ARMv8-A / x86 / MIPS 处理器、运行 Android 1.6+ 系统的设备。
+只要你的设备不是古老的纯armeabi架构，我想……呃，大约都能跑的比较流畅吧hhh
+
+---
+
 ## 分支说明
 
 | 分支 | 说明 |
@@ -51,7 +78,7 @@
 | `master` | 0.4.x 开发主线（含内置播放器） |
 | `0.3.x` | 0.3.x 稳定分支（无播放器） |
 
-0.3.x 分支将仅进行维护性更新，新功能将在 master 分支开发。
+0.3.x 分支将仅进行维护性更新，未来的新功能将在 master 分支开发。
 
 ---
 
@@ -61,6 +88,8 @@
 
 - 哔哩终端 (BiliClient)
 - WearBili
+- WristBili
+- DanmakuFlameMaster
 - IJKPlayer
 
 感谢所有愿意在 2026 年还在折腾老设备的群友们，你们的反馈让这个项目越来越好的说~
@@ -83,6 +112,6 @@ GPLv3 保证您有以下自由：
 
 ## 下载与反馈
 
+- 官网: http://www.biliclassic.cn
 - GitHub: https://github.com/AktuelleKamera/BiliClassic
 - 反馈 Issue: https://github.com/AktuelleKamera/BiliClassic/issues
-- 官网: http://www.biliclassic.cn
