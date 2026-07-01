@@ -102,10 +102,18 @@ public class TvGridAdapter extends BaseAdapter {
         itemView.setEnabled(true);
         itemView.setVisibility(View.VISIBLE);
 
+        // 强制 item 可点击和可聚焦
+        itemView.setFocusable(true);
+        itemView.setFocusableInTouchMode(true);
+        itemView.setClickable(true);
+
         itemView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(final View v) {
-                if (listener == null || rootContainer == null) return;
+                if (listener == null || rootContainer == null) {
+                    android.util.Log.e("TvGridAdapter", "listener or rootContainer is null");
+                    return;
+                }
 
                 v.setEnabled(false);
 
@@ -130,7 +138,7 @@ public class TvGridAdapter extends BaseAdapter {
 
                 fIcon.setImageResource(icons[position]);
                 fLabel.setText(titles[position]);
-                fBackLabel.setText("正在打开 " + titles[position] + "...");
+//                fBackLabel.setText("正在打开 " + titles[position] + "...");
 
                 fFront.setVisibility(View.VISIBLE);
                 fFront.setAlpha(1.0f);
@@ -162,7 +170,7 @@ public class TvGridAdapter extends BaseAdapter {
 
                 final int duration = 350;
 
-                // 第一段：0° → 80°
+                // 第一段：0° → 75°
                 flyingTile.animate()
                         .scaleX(scaleX)
                         .scaleY(scaleY)

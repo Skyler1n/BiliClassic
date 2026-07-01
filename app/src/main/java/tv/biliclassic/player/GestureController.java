@@ -222,9 +222,6 @@ public class GestureController {
         public boolean onDoubleTap(MotionEvent e) {
             if (mListener != null) {
                 mListener.onTogglePlayPause();
-                mListener.onShowToast(mInGestureSeekingMode ?
-                        mActivity.getString(R.string.PlayerController_toast_message_pause) :
-                        mActivity.getString(R.string.PlayerController_toast_message_play));
             }
             return true;
         }

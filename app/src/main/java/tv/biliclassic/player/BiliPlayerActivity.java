@@ -56,8 +56,6 @@ import tv.danmaku.ijk.media.player.IMediaPlayer;
 import tv.danmaku.ijk.media.player.IjkMediaPlayer;
 import util.LocalStreamProxy;
 
-// 正在拆除中的巨大屎山
-
 public class BiliPlayerActivity extends Activity implements
         SurfaceHolder.Callback,
         IMediaPlayer.OnPreparedListener,
@@ -75,7 +73,8 @@ public class BiliPlayerActivity extends Activity implements
     private static final int TIME_UPDATE_INTERVAL = 30000;
 
     private static final int DECODER_SYSTEM = 0;
-    private static final int DECODER_IJK = 1;
+    private static final int DECODER_IJK_HARD = 1;
+    private static final int DECODER_IJK_SOFT = 2;
 
     private static final int COMPLETION_ACTION_LOOP = 0;
     private static final int COMPLETION_ACTION_NEXT = 1;
@@ -88,13 +87,6 @@ public class BiliPlayerActivity extends Activity implements
     private static final int ASPECT_RATIO_4_3_INSIDE = 2;
     private static final int ASPECT_RATIO_16_9_INSIDE = 3;
     private static final int ASPECT_RATIO_COUNT = 4;
-
-    private static final int[] ASPECT_RATIO_TOAST_IDS = {
-            R.string.PlayerController_toast_message_aspect_ratio_adjust_content,
-            R.string.PlayerController_toast_message_aspect_ratio_adjust_screen,
-            R.string.PlayerController_toast_message_aspect_ratio_4_3_inside,
-            R.string.PlayerController_toast_message_aspect_ratio_16_9_inside
-    };
 
     private SurfaceView videoView;
     private SurfaceHolder surfaceHolder;
@@ -209,7 +201,6 @@ public class BiliPlayerActivity extends Activity implements
         }
     });
 
-    // 手势控制器
     private GestureController mGestureController;
 
     @Override
@@ -654,72 +645,7 @@ public class BiliPlayerActivity extends Activity implements
             }
         }
 
-        if (decoderType == DECODER_IJK) {
-            IjkMediaPlayer ijkPlayer = new IjkMediaPlayer();
-            mediaPlayer = ijkPlayer;
-
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", 0L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles",
-                    DecoderSettingsActivity.isOpenSLESEnabled() ? 1L : 0L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop",
-                    (long) DecoderSettingsActivity.getFramedrop());
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps",
-                    (long) DecoderSettingsActivity.getMaxFps());
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-pictq-size",
-                    (long) DecoderSettingsActivity.getVideoPictqSize());
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "vn",
-                    DecoderSettingsActivity.isVideoDisabled() ? 1L : 0L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "an",
-                    DecoderSettingsActivity.isAudioDisabled() ? 1L : 0L);
-
-            int skipLoopFilter = DecoderSettingsActivity.getSkipLoopFilter();
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", (long) skipLoopFilter);
-            int skipFrame = DecoderSettingsActivity.getSkipFrame();
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_frame", (long) skipFrame);
-
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 100L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "flush_packets");
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L);
-            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB);
-
-            if (isNetworkUrl) {
-                ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "packet-buffering", 1L);
-                ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-buffer-size", 15 * 1000 * 1000L);
-            }
-
-            try {
-                if (isNetworkUrl) {
-                    Map<String, String> headers = new HashMap<String, String>();
-                    headers.put("Referer", "https://www.bilibili.com/");
-                    String cookie = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
-                    if (cookie != null && cookie.length() > 0) {
-                        headers.put("Cookie", cookie);
-                    }
-                    ijkPlayer.setDataSource(actualUrl, headers);
-                } else {
-                    if (cachePath != null && new File(cachePath).exists()) {
-                        ijkPlayer.setDataSource(cachePath);
-                    } else if (videoUrl != null && new File(videoUrl).exists()) {
-                        ijkPlayer.setDataSource(videoUrl);
-                    } else {
-                        Toast.makeText(this, "无视频源", Toast.LENGTH_SHORT).show();
-                        finish();
-                        return;
-                    }
-                }
-            } catch (IOException e) {
-                Toast.makeText(this, "设置数据源失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                finish();
-                return;
-            }
-
-        } else {
+        if (decoderType == DECODER_SYSTEM) {
             // 系统解码器
             AndroidMediaPlayer androidPlayer = new AndroidMediaPlayer();
             mediaPlayer = androidPlayer;
@@ -758,6 +684,99 @@ public class BiliPlayerActivity extends Activity implements
                 finish();
                 return;
             }
+
+            mediaPlayer.setOnPreparedListener(this);
+            mediaPlayer.setOnCompletionListener(this);
+            mediaPlayer.setOnSeekCompleteListener(this);
+            mediaPlayer.setOnErrorListener(this);
+            mediaPlayer.setOnInfoListener(this);
+            mediaPlayer.setOnBufferingUpdateListener(this);
+
+            if (surfaceHolder != null) {
+                try {
+                    mediaPlayer.setDisplay(surfaceHolder);
+                } catch (Exception e) {}
+            }
+
+            try {
+                mediaPlayer.prepareAsync();
+            } catch (Exception e) {
+                Toast.makeText(this, "准备播放失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                finish();
+            }
+            return;
+        }
+
+        // IJK 解码器（硬解或软解）
+        IjkMediaPlayer ijkPlayer = new IjkMediaPlayer();
+        mediaPlayer = ijkPlayer;
+
+        boolean enableHardware = (decoderType == DECODER_IJK_HARD);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec", enableHardware ? 1L : 0L);
+
+        if (enableHardware) {
+            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-all-videos", 1L);
+            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-auto-rotate", 1L);
+            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-handle-resolution-change", 1L);
+            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "mediacodec-timeout", 10000L);
+        }
+
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "opensles",
+                DecoderSettingsActivity.isOpenSLESEnabled() ? 1L : 0L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "framedrop",
+                (long) DecoderSettingsActivity.getFramedrop());
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps",
+                (long) DecoderSettingsActivity.getMaxFps());
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "video-pictq-size",
+                (long) DecoderSettingsActivity.getVideoPictqSize());
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "vn",
+                DecoderSettingsActivity.isVideoDisabled() ? 1L : 0L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "an",
+                DecoderSettingsActivity.isAudioDisabled() ? 1L : 0L);
+
+        int skipLoopFilter = DecoderSettingsActivity.getSkipLoopFilter();
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_loop_filter", (long) skipLoopFilter);
+        int skipFrame = DecoderSettingsActivity.getSkipFrame();
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_CODEC, "skip_frame", (long) skipFrame);
+
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "start-on-prepared", 1L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "analyzeduration", 100L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "soundtouch", 1L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_clear", 1L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "fflags", "flush_packets");
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "reconnect", 1L);
+        ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_FORMAT, "user_agent", NetWorkUtil.USER_AGENT_WEB);
+
+        if (isNetworkUrl) {
+            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "packet-buffering", 1L);
+            ijkPlayer.setOption(IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-buffer-size", 15 * 1000 * 1000L);
+        }
+
+        try {
+            if (isNetworkUrl) {
+                Map<String, String> headers = new HashMap<String, String>();
+                headers.put("Referer", "https://www.bilibili.com/");
+                String cookie = SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, "");
+                if (cookie != null && cookie.length() > 0) {
+                    headers.put("Cookie", cookie);
+                }
+                ijkPlayer.setDataSource(actualUrl, headers);
+            } else {
+                if (cachePath != null && new File(cachePath).exists()) {
+                    ijkPlayer.setDataSource(cachePath);
+                } else if (videoUrl != null && new File(videoUrl).exists()) {
+                    ijkPlayer.setDataSource(videoUrl);
+                } else {
+                    Toast.makeText(this, "无视频源", Toast.LENGTH_SHORT).show();
+                    finish();
+                    return;
+                }
+            }
+        } catch (IOException e) {
+            Toast.makeText(this, "设置数据源失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            finish();
+            return;
         }
 
         mediaPlayer.setOnPreparedListener(this);
@@ -844,7 +863,6 @@ public class BiliPlayerActivity extends Activity implements
             tvTotalTime.setText(formatTime(mDuration));
         }
 
-        // 更新手势控制器
         if (mGestureController != null) {
             mGestureController.setDuration(mDuration);
         }
@@ -945,13 +963,21 @@ public class BiliPlayerActivity extends Activity implements
     public boolean onError(IMediaPlayer mp, int what, int extra) {
         showBuffering(false);
 
+        int sdkInt = android.os.Build.VERSION.SDK_INT;
+
+        // 系统解码器失败
         if (decoderType == DECODER_SYSTEM && mAllowDecoderFallback) {
-            // 第一次硬解失败 → 直接降级软解
             if (!isPrepared) {
                 mAllowDecoderFallback = false;
-                decoderType = DECODER_IJK;
+                // 4.1以下直接软解，4.1以上先硬解
+                if (sdkInt < 16) {
+                    decoderType = DECODER_IJK_SOFT;
+                    Toast.makeText(this, "系统解码器失败，切换到IJK软解", Toast.LENGTH_LONG).show();
+                } else {
+                    decoderType = DECODER_IJK_HARD;
+                    Toast.makeText(this, "系统解码器失败，切换到IJK硬解", Toast.LENGTH_LONG).show();
+                }
                 mHardwareDecodeRetryCount = 0;
-                Toast.makeText(this, "硬解失败，已自动切换到软解模式", Toast.LENGTH_LONG).show();
                 cleanupAndRestart();
                 return true;
             }
@@ -967,16 +993,43 @@ public class BiliPlayerActivity extends Activity implements
                 return true;
             }
 
-            // 重试 5 次仍失败 → 降级软解
+            // 重试耗尽 → 降级
             mAllowDecoderFallback = false;
-            decoderType = DECODER_IJK;
+            if (sdkInt < 16) {
+                decoderType = DECODER_IJK_SOFT;
+                Toast.makeText(this, "系统解码器失败，切换到IJK软解", Toast.LENGTH_LONG).show();
+            } else {
+                decoderType = DECODER_IJK_HARD;
+                Toast.makeText(this, "系统解码器失败，切换到IJK硬解", Toast.LENGTH_LONG).show();
+            }
             mHardwareDecodeRetryCount = 0;
-            Toast.makeText(this, "硬解失败，已自动切换到软解模式", Toast.LENGTH_LONG).show();
             cleanupAndRestart();
             return true;
         }
 
-        if (decoderType == DECODER_IJK || !mAllowDecoderFallback) {
+        // IJK 硬解失败
+        if (decoderType == DECODER_IJK_HARD && mAllowDecoderFallback) {
+            if (mHardwareDecodeRetryCount < MAX_HARDWARE_RETRY) {
+                mHardwareDecodeRetryCount++;
+                handler.postDelayed(new Runnable() {
+                    public void run() {
+                        cleanupAndRestart();
+                    }
+                }, 500);
+                return true;
+            }
+
+            // 硬解重试耗尽 → 降级软解
+            mAllowDecoderFallback = false;
+            decoderType = DECODER_IJK_SOFT;
+            mHardwareDecodeRetryCount = 0;
+            Toast.makeText(this, "IJK硬解失败，切换到IJK软解", Toast.LENGTH_LONG).show();
+            cleanupAndRestart();
+            return true;
+        }
+
+        // IJK 软解失败 或 不允许降级
+        if (decoderType == DECODER_IJK_SOFT || !mAllowDecoderFallback) {
             Toast.makeText(this, "播放失败，请检查网络或重试", Toast.LENGTH_LONG).show();
             finish();
             return true;
@@ -1343,7 +1396,14 @@ public class BiliPlayerActivity extends Activity implements
     }
 
     private void showMediaInfoDialog() {
-        String decoder = (decoderType == DECODER_IJK) ? "IJK V3软解" : "系统硬解";
+        String decoder;
+        if (decoderType == DECODER_SYSTEM) {
+            decoder = "系统硬解";
+        } else if (decoderType == DECODER_IJK_HARD) {
+            decoder = "IJK 硬解";
+        } else {
+            decoder = "IJK 软解";
+        }
         String resolution = videoWidth + " x " + videoHeight;
         String duration = "";
         if (mediaPlayer != null && isPrepared) {

@@ -40,7 +40,7 @@ public class SettingsActivity extends BaseActivity {
     private static final String KEY_DEFAULT_TAB = "default_tab";
     private static final String KEY_VIDEO_QUALITY = "video_quality";
     private static final String KEY_MODERN_MODE = "modern_mode";
-    private static final String KEY_DECODER_TYPE = "decoder_type";
+    public static final String KEY_DECODER_TYPE = "decoder_type";
     private static final String KEY_BUILTIN_PLAYER = "use_builtin_player";
     private static final String KEY_ONLINE_PLAY = "online_play";
 
@@ -71,10 +71,13 @@ public class SettingsActivity extends BaseActivity {
 
     // 解码方式
     private static final int DECODER_SYSTEM = 0;
-    private static final int DECODER_IJK = 1;
+    private static final int DECODER_IJK_HARD = 1;
+    private static final int DECODER_IJK_SOFT = 2;
 
     // 内置播放器最低系统版本要求 (Android 2.3 / API 9)
     private static final int MIN_SDK_FOR_BUILTIN = 9;
+    // IJK 硬解最低系统版本要求 (Android 4.1 / API 16)
+    private static final int MIN_SDK_FOR_IJK_HARDWARE = 16;
 
     private TextView cacheSizeText;
     private LinearLayout clearCacheItem;
@@ -166,7 +169,6 @@ public class SettingsActivity extends BaseActivity {
                             isChecked ? "已开启横屏模式，正在重启..." : "已关闭横屏模式，正在重启...",
                             Toast.LENGTH_SHORT).show();
 
-                    // 重启所有 Activity
                     Intent intent = new Intent(SettingsActivity.this, MainActivity.class);
                     intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
                     startActivity(intent);
@@ -219,12 +221,10 @@ public class SettingsActivity extends BaseActivity {
 
         if (onlinePlayItem != null) {
             if (!isBuiltinPlayerSupported()) {
-                // 低于 Android 2.3，完全隐藏在线播放相关所有 UI
                 onlinePlayItem.setVisibility(View.GONE);
                 if (onlinePlayWarning != null) {
                     onlinePlayWarning.setVisibility(View.GONE);
                 }
-                // 强制关闭在线播放
                 SharedPreferencesUtil.putBoolean(KEY_ONLINE_PLAY, false);
             } else {
                 onlinePlayItem.setVisibility(View.VISIBLE);
@@ -451,6 +451,11 @@ public class SettingsActivity extends BaseActivity {
         }
     }
 
+    // 判断是否支持 IJK 硬解 (Android 4.1+)
+    private static boolean isIjkHardwareSupported() {
+        return Build.VERSION.SDK_INT >= MIN_SDK_FOR_IJK_HARDWARE;
+    }
+
     // 获取在线播放状态
     public static boolean isOnlinePlayEnabled() {
         return SharedPreferencesUtil.getBoolean(KEY_ONLINE_PLAY, false);
@@ -555,8 +560,19 @@ public class SettingsActivity extends BaseActivity {
         }
     }
 
+    // 获取解码方式
     public static int getDecoderType() {
-        return SharedPreferencesUtil.getInt(KEY_DECODER_TYPE, DECODER_IJK);
+        // 默认值：4.1 以下默认软解，4.1 以上默认硬解
+        int defaultDecoder = isIjkHardwareSupported() ? DECODER_IJK_HARD : DECODER_IJK_SOFT;
+        int saved = SharedPreferencesUtil.getInt(KEY_DECODER_TYPE, defaultDecoder);
+
+        // 如果保存的值是硬解但设备不支持，自动修正为软解
+        if (saved == DECODER_IJK_HARD && !isIjkHardwareSupported()) {
+            saved = DECODER_IJK_SOFT;
+            SharedPreferencesUtil.putInt(KEY_DECODER_TYPE, saved);
+        }
+
+        return saved;
     }
 
     public static boolean useBuiltinPlayer() {
@@ -666,7 +682,6 @@ public class SettingsActivity extends BaseActivity {
         ArrayList filteredValues = new ArrayList();
 
         for (int i = 0; i < allPlayers.length; i++) {
-            // 低版本跳过内置播放器
             if (allValues[i] == PLAYER_BUILTIN && !isBuiltinPlayerSupported()) {
                 continue;
             }
@@ -720,17 +735,47 @@ public class SettingsActivity extends BaseActivity {
         playerChoiceText.setText(displayName);
     }
 
+    // 解码方式显示
     private void updateDecoderChoiceDisplay() {
         int decoder = getDecoderType();
-        decoderChoiceText.setText(decoder == DECODER_IJK ? "IJK V3 软解" : "系统硬解");
+        switch (decoder) {
+            case DECODER_SYSTEM:
+                decoderChoiceText.setText("系统解码器");
+                break;
+            case DECODER_IJK_HARD:
+            default:
+                decoderChoiceText.setText("IJK 硬解");
+                break;
+            case DECODER_IJK_SOFT:
+                decoderChoiceText.setText("IJK 软解");
+                break;
+        }
     }
 
+    // 解码方式选择对话框
     private void showDecoderChoiceDialog() {
-        final String[] decoders = {"系统硬解", "IJK V3 软解"};
-        final int[] decoderValues = {DECODER_SYSTEM, DECODER_IJK};
+        final String[] decoders;
+        final int[] decoderValues;
+
+        if (isIjkHardwareSupported()) {
+            // Android 4.1+ 显示三个选项
+            decoders = new String[]{"系统解码器", "IJK 硬解", "IJK 软解"};
+            decoderValues = new int[]{DECODER_SYSTEM, DECODER_IJK_HARD, DECODER_IJK_SOFT};
+        } else {
+            // Android 4.1 以下只显示两个选项
+            decoders = new String[]{"系统解码器", "IJK 软解"};
+            decoderValues = new int[]{DECODER_SYSTEM, DECODER_IJK_SOFT};
+        }
+
         int currentDecoder = getDecoderType();
 
-        int checkedIndex = (currentDecoder == DECODER_IJK) ? 1 : 0;
+        int checkedIndex = 0;
+        for (int i = 0; i < decoderValues.length; i++) {
+            if (decoderValues[i] == currentDecoder) {
+                checkedIndex = i;
+                break;
+            }
+        }
 
         new AlertDialog.Builder(this)
                 .setTitle("选择解码方式")
@@ -740,9 +785,6 @@ public class SettingsActivity extends BaseActivity {
                         int newDecoder = decoderValues[which];
                         SharedPreferencesUtil.putInt(KEY_DECODER_TYPE, newDecoder);
                         updateDecoderChoiceDisplay();
-                        Toast.makeText(SettingsActivity.this,
-                                "已切换为: " + decoders[which],
-                                Toast.LENGTH_SHORT).show();
                         dialog.dismiss();
                     }
                 })

@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.support.v4.app.FragmentActivity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.GridView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -26,11 +27,9 @@ public class TvMainActivity extends FragmentActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // 获取 SDK 版本（兼容 Android 1.6）
         int sdkInt = getSdkInt();
         if (sdkInt < 14) {
             Toast.makeText(this, "TV模式需要 Android 4.0 及以上系统", Toast.LENGTH_LONG).show();
-            // 跳转到普通 MainActivity
             Intent intent = new Intent(this, MainActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
@@ -43,6 +42,10 @@ public class TvMainActivity extends FragmentActivity {
         gridView = (GridView) findViewById(R.id.grid_tiles);
         adapter = new TvGridAdapter(this);
         gridView.setAdapter(adapter);
+
+        // ========== 关键：设置 rootContainer ==========
+        FrameLayout rootContainer = (FrameLayout) findViewById(R.id.root_container);
+        adapter.setRootContainer(rootContainer);
 
         adapter.setOnTileClickListener(new TvGridAdapter.OnTileClickListener() {
             @Override
@@ -71,7 +74,6 @@ public class TvMainActivity extends FragmentActivity {
         });
     }
 
-    // 兼容 Android 1.6 获取 SDK 版本
     private int getSdkInt() {
         try {
             java.lang.reflect.Field field = android.os.Build.VERSION.class.getField("SDK_INT");
